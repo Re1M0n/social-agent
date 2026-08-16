@@ -20,7 +20,7 @@ content/media/*     ─┘   (detecta)   (LLM por      (horarios    (API real
 ```
 
 1. **Ingesta** — deja ideas en `content/ideas/` (archivos `.md`/`.txt`) y fotos/videos en `content/media/`. El agente los detecta al vuelo.
-2. **Generación** — el agente experto convierte cada idea en **una publicación por plataforma**, con el tono, formato, hashtags y límites de caracteres de cada red. Sin `LLM_API_KEY` usa plantillas de calidad decente.
+2. **Generación** — el agente experto convierte cada idea en **una publicación por plataforma**, con el tono, formato, hashtags y límites de caracteres de cada red. **Habla con la IA por defecto**: sin `LLM_API_KEY` usa un proveedor gratuito anónimo (Kilo Code, sin registro) y, si falla, cae a plantillas de calidad decente. Comprueba la conexión con `npm run llm:check`.
 3. **Programación** — en modo autónomo calcula el **mejor horario** para cada canal y respeta un intervalo mínimo anti-spam.
 4. **Publicación** — sube la media (imagen/video) y publica en cada canal con su API oficial.
 
@@ -39,7 +39,8 @@ cp .env.example .env    # rellena credenciales (abajo)
 
 ```bash
 npm run ingest      # escanea content/ideas y content/media
-npm run generate    # genera drafts por plataforma (LLM o plantillas)
+npm run llm:check   # comprueba la conexión con la IA y el proveedor en uso
+npm run generate    # genera drafts por plataforma (IA gratuita o plantillas)
 npm run publish     # publica los posts programados
 npm run serve       # 🤖 modo autónomo: vigila, genera, programa y publica solo
 npm run status      # estado de la cola
@@ -85,6 +86,7 @@ AUTO_PUBLISH=1 DRY_RUN=0 npm run serve
 | `LLM_API_KEY` | Clave del LLM (OpenAI, OpenRouter, Groq, Ollama…) | — |
 | `LLM_BASE_URL` | Endpoint compatible con Chat Completions | OpenAI |
 | `LLM_MODEL` | Modelo a usar | `gpt-4o-mini` |
+| `LLM_FREE_FALLBACK` | `1` = sin key usa el proveedor gratuito anónimo (Kilo); `0` = solo plantillas | `1` |
 
 ### Credenciales por canal
 
@@ -238,11 +240,25 @@ publicar, con el flujo aprobar/descartar en vivo:
 - **Acciones**: ✅ Aprobar todos (programa en horarios óptimos), 🕐 Programar
   (aprueba un draft), 🚀 Publicar ahora, 🔁 Reintentar fallidos y 🗑 Descartar.
 - **Media preview**: imágenes/videos adjuntos visibles en el propio panel.
+- **Pestaña ⚡ Generar**: sube fotos/vídeos/audio (arrastrando o con el botón) a
+  `content/media/` y añade ideas de texto, y todo se ingiere al instante. Con el
+  botón **✨ Generar drafts con IA** (o por ítem) el agente habla con la IA y
+  crea los drafts sin salir del panel, con **progreso en vivo** (ítem actual,
+  `x/y` y drafts listos vía `GET /api/generation`, actualizado cada ~1s). Cada
+  ítem tiene un botón 🗑 para **eliminarlo** (con confirmación): quita el ítem,
+  sus drafts y el archivo fuente (.md o media) del disco. También puedes
+  **arrastrar archivos .md/.txt** (o texto suelto) como ideas y **pegar URLs de
+  YouTube/TikTok** para descargar el vídeo solo a `content/media` (requiere
+  yt-dlp: `npm run setup:tools`).
 
 API REST integrada (`GET /api/state`, `PATCH /api/posts/:id/edit`,
-`POST /api/posts/:id/{schedule|publish|discard}`, `POST /api/posts/approve-all`).
-Solo escucha en `127.0.0.1`. Se integra con el resto de comandos: lo que
-programes o publiques desde el panel se refleja en `status`, `calendar`, etc.
+`POST /api/posts/:id/{schedule|publish|discard}`, `POST /api/posts/approve-all`,
+`POST /api/generate` (con `itemId` opcional para un ítem concreto),
+`POST /api/media` (cuerpo crudo + cabecera `X-File-Name`),
+`POST /api/ideas`, `POST /api/ideas-file`, `POST /api/import-url`,
+`DELETE /api/items/:id`). Solo escucha en `127.0.0.1`. Se integra con el resto de
+comandos: lo que subas, generes, programes o publiques desde el panel se
+refleja en `status`, `calendar`, `metrics` y `report`.
 
 ## 📅 Calendario editorial y métricas
 
@@ -316,7 +332,7 @@ data/
 ```bash
 npm run status                  # estado completo de la cola
 npm run publish -- --force      # publica drafts y reintenta fallidos ya
-npm test                        # tests (30): scheduler, generador (con A/B), flujos IG/TikTok, métricas, informes, plan y API del panel
+npm test                        # tests (51): scheduler, generador (con A/B), flujos IG/TikTok, métricas, informes, plan, API del panel (generar, subir media/ideas, importar URLs, borrar)
 npm run serve:media             # sirve content/media en :8787 (para IG/TikTok)
 npm run media:urls              # muestra y verifica las URLs públicas de la media
 npm run panel                   # panel web para revisar y aprobar drafts

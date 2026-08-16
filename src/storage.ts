@@ -91,6 +91,20 @@ export class Store {
     return false;
   }
 
+  /**
+   * Elimina un ítem de contenido y todos sus posts (para el panel: quitar
+   * ideas o media subidas por error). Devuelve cuántos posts se eliminaron.
+   */
+  removeContentItem(id: string): { removed: boolean; postsRemoved: number } {
+    const before = this.data.contentItems.length;
+    this.data.contentItems = this.data.contentItems.filter((c) => c.id !== id);
+    if (this.data.contentItems.length === before) return { removed: false, postsRemoved: 0 };
+    const postsBefore = this.data.posts.length;
+    this.data.posts = this.data.posts.filter((p) => p.contentItemId !== id);
+    this.save();
+    return { removed: true, postsRemoved: postsBefore - this.data.posts.length };
+  }
+
   /** Dado un id de contenido, devuelve las plataformas ya cubiertas. */
   channelsCovered(contentItemId: string): Set<string> {
     return new Set(this.data.posts.filter((p) => p.contentItemId === contentItemId).map((p) => p.channel));

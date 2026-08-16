@@ -30,6 +30,8 @@ export interface ContentItem {
   body?: string;
   /** Ruta del archivo de media (si aplica). */
   filePath?: string;
+  /** Archivo fuente en disco (idea .md o media): permite borrarlo al eliminar el ítem. */
+  sourceFile?: string;
   /** Tipo MIME aproximado (video/photo/audio). */
   mediaType?: "video" | "photo" | "audio" | "text";
   /** Etiquetas extra que el usuario quiera forzar. */

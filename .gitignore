@@ -22,3 +22,6 @@ _site/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Herramientas locales de descarga (yt-dlp se instala con npm run setup:tools)
+tools/

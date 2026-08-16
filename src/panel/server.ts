@@ -1,13 +1,32 @@
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { mkdirSync, readFileSync, existsSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
-import { join, sep } from "node:path";
+import { basename, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PLATFORM_PROFILES } from "../agent/marketingAgent.js";
 import { mimeOf } from "../channels/http.js";
-import type { AgentConfig } from "../config.js";
+import { CONTENT_EXTENSIONS, type AgentConfig } from "../config.js";
+import { generateForAll, generateForItem, type GenerationProgress } from "../generator.js";
+import { ingest } from "../ingest.js";
 import { CHANNEL_LIMITS, publishSingle, scheduleDrafts, scheduleSingle } from "../publisher.js";
 import { Store } from "../storage.js";
 import type { ChannelId } from "../types.js";
+
+/** Límite de subida de media (300 MB: sobra para fotos y la mayoría de vídeos). */
+const MAX_UPLOAD_BYTES = 300 * 1024 * 1024;
+
+/** Sesión de generación en curso (progreso en vivo del panel vía polling). */
+interface GenerationState {
+  running: boolean;
+  currentItem?: string;
+  index: number;
+  total: number;
+  generated: number;
+  startedAt: number;
+  error?: string;
+  ms?: number;
+}
+let generation: GenerationState | null = null;
 
 /** Ruta del HTML del panel: se lee en runtime desde src (sin paso de build). */
 function panelHtmlPath(config: AgentConfig): string {
@@ -92,9 +111,207 @@ async function handleApi(
 ): Promise<void> {
   // El store se carga fresco en cada petición para ver cambios externos.
   const store = new Store(config.dataFile);
-  const body = await readBody(req);
-  const json = body ? JSON.parse(body) : {};
+  const raw = await readBodyBuffer(req);
+  const body = raw.toString("utf8");
+  // Cuerpo tolerante: las subidas de media son binarias (no JSON).
+  let json: Record<string, unknown> = {};
+  try {
+    json = body ? JSON.parse(body) : {};
+  } catch {
+    /* cuerpo no-JSON: las rutas JSON validarán sus propios campos */
+  }
   const match = pathname.match(/^\/api\/posts\/([^/]+)\/([a-z-]+)$/);
+
+  // Progreso en vivo de la generación.
+  if (method === "GET" && pathname === "/api/generation") {
+    return sendJson(res, 200, generation ?? { running: false, index: 0, total: 0, generated: 0 });
+  }
+
+  // Generación de drafts con IA: arranca en segundo plano y devuelve 202;
+  // el panel consulta /api/generation para ver el progreso por ítem.
+  if (method === "POST" && pathname === "/api/generate") {
+    if (generation?.running) return sendJson(res, 409, { error: "Ya hay una generación en curso. Espera a que termine." });
+    const itemId = typeof json.itemId === "string" ? json.itemId : undefined;
+    const startedAt = Date.now();
+    generation = { running: true, currentItem: undefined, index: 0, total: 0, generated: 0, startedAt };
+    const update = (p: GenerationProgress): void => {
+      if (generation) Object.assign(generation, p);
+    };
+    const genStore = new Store(config.dataFile);
+    const run = itemId
+      ? generateForItem(config, genStore, itemId, update)
+      : generateForAll(config, genStore, update);
+    run
+      .then((result) => {
+        if (!generation) return;
+        Object.assign(generation, {
+          running: false,
+          currentItem: undefined,
+          index: generation.total,
+          ...result,
+          ms: Date.now() - startedAt,
+        });
+      })
+      .catch((err) => {
+        if (!generation) return;
+        Object.assign(generation, {
+          running: false,
+          error: err instanceof Error ? err.message : String(err),
+          ms: Date.now() - startedAt,
+        });
+      });
+    return sendJson(res, 202, { ok: true });
+  }
+
+  // Subida de media: cuerpo crudo + nombre en X-File-Name (sin multipart).
+  if (method === "POST" && pathname === "/api/media") {
+    const fileName = decodeURIComponent(String(req.headers["x-file-name"] ?? "")).trim();
+    const safeName = basename(fileName).replace(/[^\w.\-() ]+/g, "_").trim();
+    const ext = extname(safeName).toLowerCase();
+    if (!CONTENT_EXTENSIONS.includes(ext)) {
+      return sendJson(res, 400, {
+        error: `Extensión no soportada: ${ext || "(sin extensión)"}. Permite: ${CONTENT_EXTENSIONS.join(", ")}`,
+      });
+    }
+    if (!safeName || raw.length === 0) return sendJson(res, 400, { error: "Archivo vacío o sin nombre." });
+    if (raw.length > MAX_UPLOAD_BYTES) return sendJson(res, 413, { error: "El archivo supera el límite de 300 MB." });
+    mkdirSync(config.mediaDir, { recursive: true });
+    let final = safeName;
+    let i = 1;
+    while (existsSync(join(config.mediaDir, final))) final = `${basename(safeName, ext)}-${i++}${ext}`;
+    writeFileSync(join(config.mediaDir, final), raw);
+    const added = ingest(config, store);
+    const item = store.contentItems.find((it) => it.filePath === join(config.mediaDir, final));
+    return sendJson(res, 200, { ok: true, file: final, itemId: item?.id, ingested: added.length });
+  }
+
+  // Borrar un ítem de contenido (idea o media) y su archivo fuente.
+  if (method === "DELETE" && pathname.startsWith("/api/items/")) {
+    const itemId = decodeURIComponent(pathname.slice("/api/items/".length));
+    const item = store.getContentItem(itemId);
+    if (!item) return sendJson(res, 404, { error: "Ítem no encontrado" });
+    const { postsRemoved } = store.removeContentItem(itemId);
+    // Borra también el archivo fuente (.md de idea o la media), solo si está
+    // dentro de las carpetas de contenido del proyecto.
+    const source = item.sourceFile ?? item.filePath;
+    if (source) {
+      const abs = resolve(source);
+      const inside =
+        abs.startsWith(resolve(config.ideasDir) + sep) || abs.startsWith(resolve(config.mediaDir) + sep);
+      if (inside && existsSync(abs) && statSync(abs).isFile()) {
+        try {
+          unlinkSync(abs);
+        } catch {
+          /* el borrado lógico no debe fallar por no poder borrar el archivo */
+        }
+      }
+    }
+    return sendJson(res, 200, { ok: true, itemId, postsRemoved });
+  }
+
+  // Subida de una idea como archivo de texto (.md/.txt), para arrastrar a la pestaña.
+  if (method === "POST" && pathname === "/api/ideas-file") {
+    const fileName = decodeURIComponent(String(req.headers["x-file-name"] ?? "")).trim();
+    const safeName = basename(fileName).replace(/[^\w.\-() ]+/g, "_").trim();
+    const ext = extname(safeName).toLowerCase();
+    if (![".md", ".txt", ".markdown"].includes(ext)) {
+      return sendJson(res, 400, { error: "Solo se aceptan archivos de texto (.md, .txt, .markdown)." });
+    }
+    if (!safeName || raw.length === 0) return sendJson(res, 400, { error: "Archivo vacío o sin nombre." });
+    mkdirSync(config.ideasDir, { recursive: true });
+    let final = safeName;
+    let n = 1;
+    while (existsSync(join(config.ideasDir, final))) final = `${basename(safeName, ext)}-${n++}${ext}`;
+    writeFileSync(join(config.ideasDir, final), raw);
+    ingest(config, store);
+    const item = store.contentItems.find((it) => it.sourceFile === join(config.ideasDir, final));
+    return sendJson(res, 200, { ok: true, file: final, itemId: item?.id });
+  }
+
+  // Importar un vídeo por URL (YouTube/TikTok) usando yt-dlp.
+  if (method === "POST" && pathname === "/api/import-url") {
+    const url = typeof json.url === "string" ? json.url.trim() : "";
+    if (!url) return sendJson(res, 400, { error: "Pega la URL del vídeo." });
+    let host = "";
+    try {
+      host = new URL(url).hostname.toLowerCase();
+    } catch {
+      return sendJson(res, 400, { error: "La URL no es válida." });
+    }
+    const allowed =
+      /(^|\.)youtube\.com$/.test(host) ||
+      /(^|\.)youtu\.be$/.test(host) ||
+      /(^|\.)tiktok\.com$/.test(host);
+    if (!allowed) return sendJson(res, 400, { error: "Solo se aceptan URLs de YouTube o TikTok." });
+
+    const ytdlp = findYtDlp(config);
+    if (!ytdlp) {
+      return sendJson(res, 503, {
+        error: "No se encontró yt-dlp. Ejecuta npm run setup:tools para descargarlo (gratis).",
+      });
+    }
+    mkdirSync(config.mediaDir, { recursive: true });
+    const before = new Set(readdirSync(config.mediaDir));
+    try {
+      await runYtDlp(ytdlp, [
+        "--no-playlist",
+        "--no-progress",
+        "--js-runtimes",
+        "node", // la app ya corre en Node: ayuda a resolver el challenge de YouTube
+        "--restrict-filenames",
+        "-f",
+        "best[height<=1080][ext=mp4]/best[height<=1080]/best",
+        "-o",
+        join(config.mediaDir, "%(title)s [%(id)s].%(ext)s"),
+        url,
+      ]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const hint = msg.includes("403") || msg.includes("DRM") || msg.includes("challenge")
+        ? " YouTube/TikTok pueden bloquear descargas desde tu red; prueba en otra conexión o con tu cuenta (cookies)."
+        : "";
+      return sendJson(res, 502, { error: `Descarga fallida: ${msg}.${hint}` });
+    }
+    const downloaded = readdirSync(config.mediaDir).find((f) => !before.has(f));
+    if (!downloaded) {
+      return sendJson(res, 502, { error: "La descarga no produjo ningún archivo." });
+    }
+    const size = statSync(join(config.mediaDir, downloaded)).size;
+    if (size > 500 * 1024 * 1024) {
+      try {
+        unlinkSync(join(config.mediaDir, downloaded));
+      } catch {
+        /* no bloquea */
+      }
+      return sendJson(res, 502, { error: "El vídeo supera los 500 MB; no se guardó." });
+    }
+    ingest(config, store);
+    const item = store.contentItems.find((it) => it.sourceFile === join(config.mediaDir, downloaded));
+    return sendJson(res, 200, { ok: true, file: downloaded, sizeMb: Math.round(size / 1024 / 1024), itemId: item?.id });
+  }
+
+  // Añadir una idea de contenido (se guarda como .md e ingesta).
+  if (method === "POST" && pathname === "/api/ideas") {
+    const title = typeof json.title === "string" ? json.title.trim() : "";
+    if (!title) return sendJson(res, 400, { error: "Falta el título de la idea." });
+    const ideaBody = typeof json.body === "string" ? json.body.trim() : "";
+    mkdirSync(config.ideasDir, { recursive: true });
+    const slug =
+      title
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60) || "idea";
+    let file = `${slug}.md`;
+    let n = 1;
+    while (existsSync(join(config.ideasDir, file))) file = `${slug}-${n++}.md`;
+    writeFileSync(join(config.ideasDir, file), ideaBody ? `${title}\n\n${ideaBody}\n` : `${title}\n`);
+    ingest(config, store);
+    const item = store.contentItems.find((it) => it.kind === "idea" && it.title === title);
+    return sendJson(res, 200, { ok: true, file, itemId: item?.id });
+  }
 
   if (method === "GET" && pathname === "/api/state") {
     const items = store.contentItems.map((i) => ({ ...i, mediaName: i.filePath?.split(/[\\/]/).pop() }));
@@ -158,11 +375,34 @@ async function handleApi(
   sendJson(res, 404, { error: `Acción no soportada: ${action}` });
 }
 
-function readBody(req: import("node:http").IncomingMessage): Promise<string> {
+/** Localiza yt-dlp: tools/ del proyecto, YTDLP_PATH o el PATH del sistema. */
+function findYtDlp(config: AgentConfig): string | undefined {
+  const fromEnv = process.env.YTDLP_PATH;
+  if (fromEnv && existsSync(fromEnv)) return fromEnv;
+  const local = join(config.root, "tools", process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+  if (existsSync(local)) return local;
+  return "yt-dlp"; // del PATH; si no existe, execFile reportará ENOENT
+}
+
+/** Ejecuta yt-dlp con timeout; rechaza con el último mensaje de error. */
+function runYtDlp(bin: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(bin, args, { timeout: 600_000, maxBuffer: 5 * 1024 * 1024 }, (err, _stdout, stderr) => {
+      if (err) {
+        const tail = String(stderr || "").split(/\r?\n/).filter(Boolean).slice(-3).join(" · ");
+        reject(new Error(tail || err.message));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function readBodyBuffer(req: import("node:http").IncomingMessage): Promise<Buffer> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     req.on("data", (c) => chunks.push(c));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
   });
 }
 

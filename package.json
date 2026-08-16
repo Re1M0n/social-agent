@@ -24,6 +24,7 @@
     "report": "npm run build && node dist/cli.js report",
     "plan": "npm run build && node dist/cli.js plan",
     "gen-image": "npm run build && node dist/cli.js gen-image",
+    "setup:tools": "node scripts/fetch-ytdlp.js",
     "llm:check": "npm run build && node dist/cli.js llm:check",
     "panel": "npm run build && node dist/cli.js panel",
     "status": "npm run build && node dist/cli.js status",

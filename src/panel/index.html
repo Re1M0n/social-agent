@@ -82,6 +82,14 @@
   .savestate { font-size: 11px; color: var(--muted); min-height: 15px; }
   .empty { color: var(--muted); text-align: center; padding: 40px 0; }
   .banner { background: rgba(255,201,77,.1); border: 1px solid rgba(255,201,77,.35); color: var(--warn); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+  .gen-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 16px; }
+  .gen-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .gen-box h3 { font-size: 14px; }
+  .gen-drop { border: 2px dashed var(--border); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); font-size: 13px; }
+  .gen-drop.over { border-color: var(--accent); color: var(--accent); }
+  .gen-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .gen-box input[type="file"] { font-size: 12px; }
+  .gen-item-thumb { max-height: 60px; border-radius: 6px; border: 1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -128,6 +136,7 @@ const PLATFORM_META = {
   tiktok:    { emoji: "🎵", color: "#000000", name: "TikTok" },
 };
 const TAB_LABEL = { draft: "Pendientes", scheduled: "Programados", published: "Publicados", failed: "Fallidos" };
+const MEDIA_ACCEPT = ".jpg,.jpeg,.png,.gif,.webp,.heic,.bmp,.mp4,.mov,.webm,.mkv,.avi,.m4v,.mp3,.wav,.m4a,.ogg";
 let state = null;
 let tab = "draft";
 
@@ -135,6 +144,11 @@ let tab = "draft";
 let demoMode = false;
 let manualMode = null; // null = auto (fallback por API); "demo"/"server" = elección explícita
 let serverError = null;
+// Feedback persistente de la pestaña de generación (sobrevive al re-render).
+let genFeedback = "";
+let uploadFeedback = "";
+let ideaFeedback = "";
+let urlFeedback = "";
 const DEMO_LIMITS = { mastodon: 500, bluesky: 300, twitter: 280, linkedin: 3000, instagram: 2200, facebook: 63206, tiktok: 2200 };
 const demoNow = Date.now();
 const DEMO_ITEMS = [
@@ -182,6 +196,71 @@ async function demoApi(url, opts = {}) {
       if (p.status === "draft") { p.status = "scheduled"; p.scheduledFor = new Date(Date.now() + 3600000).toISOString(); n++; }
     }
     return { ok: true, scheduled: n };
+  }
+
+  // Simulación de la pestaña de generación.
+  if (method === "DELETE" && path.startsWith("/api/items/")) {
+    const id = decodeURIComponent(path.slice("/api/items/".length));
+    const item = demoStore.state.items.find((i) => i.id === id);
+    if (!item) throw new Error("Ítem no encontrado");
+    demoStore.state.items = demoStore.state.items.filter((i) => i.id !== id);
+    demoStore.state.posts = demoStore.state.posts.filter((p) => p.contentItemId !== id);
+    return { ok: true, itemId: id };
+  }
+
+  if (method === "GET" && path === "/api/generation") return { running: false, index: 0, total: 0, generated: 0 };
+
+  if (method === "POST" && path === "/api/generate") {
+    const itemId = body.itemId;
+    if (itemId) {
+      const item = demoStore.state.items.find((i) => i.id === itemId);
+      if (!item) throw new Error("Ítem no encontrado");
+      const chans = ["mastodon", "bluesky", "twitter"];
+      const missing = chans.filter((c) => !demoStore.state.posts.some((p) => p.contentItemId === itemId && p.channel === c));
+      for (const c of missing) {
+        demoStore.state.posts.push({
+          id: `demo-${itemId}-${c}-${Date.now()}`, contentItemId: itemId, channel: c, status: "draft",
+          text: `🚀 (Demo) Gancho de IA para ${c} sobre: ${item.title}`, tags: ["demo"], createdAt: new Date().toISOString(),
+        });
+      }
+      return { ok: true, generated: missing.length, ms: 0 };
+    }
+    const id = "demo-gen-" + Date.now();
+    demoStore.state.items.push({ id, kind: "idea", title: "Demo: idea generada con IA", body: "Idea de ejemplo simulada.", mediaType: "text", ingestedAt: new Date().toISOString() });
+    const demoPosts = [
+      ["mastodon", "🚀 (Demo) ¿Cuántas horas pierdes a la semana organizándote? Esta app las convierte en minutos. #productividad"],
+      ["bluesky", "🚀 (Demo) Hemos lanzado algo que te quita horas: organización en minutos. #productividad"],
+      ["twitter", "🚀 (Demo) Lanzamos la app que convierte horas en minutos. #productividad"],
+    ];
+    for (const [c, text] of demoPosts) {
+      demoStore.state.posts.push({ id: `${id}-${c}`, contentItemId: id, channel: c, status: "draft", text, tags: ["productividad"], createdAt: new Date().toISOString() });
+    }
+    return { ok: true, generated: 3, itemsProcessed: 1, ms: 0 };
+  }
+  if (method === "POST" && path === "/api/ideas") {
+    if (!body.title) throw new Error("Falta el título");
+    const id = "demo-idea-" + Date.now();
+    demoStore.state.items.push({ id, kind: "idea", title: body.title, body: body.body || "", mediaType: "text", ingestedAt: new Date().toISOString() });
+    return { ok: true, file: "demo-idea.md", itemId: id };
+  }
+  if (method === "POST" && path === "/api/ideas-file") {
+    const name = (body.title || "idea.md").replace(/[\\/]/g, "");
+    const id = "demo-idea-" + Date.now();
+    demoStore.state.items.push({ id, kind: "idea", title: name, body: "Idea arrastrada (demo).", mediaType: "text", ingestedAt: new Date().toISOString() });
+    return { ok: true, file: name, itemId: id };
+  }
+  if (method === "POST" && path === "/api/import-url") {
+    const url = body.url || "";
+    if (!url || !/youtube\.com|youtu\.be|tiktok\.com/i.test(url)) throw new Error("Solo se aceptan URLs de YouTube o TikTok");
+    const id = "demo-video-" + Date.now();
+    demoStore.state.items.push({ id, kind: "media", title: "Vídeo importado (demo)", body: "Archivo: " + url, filePath: "/demo/demo-video.mp4", mediaType: "video", ingestedAt: new Date().toISOString() });
+    return { ok: true, file: "demo-video.mp4", sizeMb: 1, itemId: id };
+  }
+  if (method === "POST" && path === "/api/media") {
+    const name = body.title || "archivo";
+    const id = "demo-media-" + Date.now();
+    demoStore.state.items.push({ id, kind: "media", title: name, body: "Archivo: demo", filePath: "/demo/" + name, mediaType: "photo", ingestedAt: new Date().toISOString() });
+    return { ok: true, file: name, itemId: id };
   }
   const m = path.match(/^\/api\/posts\/([^/]+)\/([a-z-]+)$/);
   if (m) {
@@ -311,11 +390,17 @@ function render() {
   document.getElementById("chips").innerHTML = state.channels.map((c) =>
     `<span class="chip"><span class="dot ${c.enabled ? "on" : "off"}"></span>${esc(c.name)}</span>`).join("");
 
-  // Tabs con contadores.
+  // Tabs con contadores + pestaña de generación.
   const counts = { draft: 0, scheduled: 0, published: 0, failed: 0 };
   state.posts.forEach((p) => counts[p.status] = (counts[p.status] || 0) + 1);
-  document.getElementById("tabs").innerHTML = Object.keys(TAB_LABEL).map((t) =>
-    `<button class="tab ${t === tab ? "active" : ""}" onclick="setTab('${t}')">${TAB_LABEL[t]} <span class="cnt">(${counts[t]})</span></button>`).join("");
+  const tabDefs = [
+    ...Object.keys(TAB_LABEL).map((t) => ({ id: t, label: TAB_LABEL[t], count: `(${counts[t]})` })),
+    { id: "generate", label: "⚡ Generar", count: "" },
+  ];
+  document.getElementById("tabs").innerHTML = tabDefs.map((t) =>
+    `<button class="tab ${t.id === tab ? "active" : ""}" onclick="setTab('${t.id}')">${t.label} ${t.count ? `<span class="cnt">${t.count}</span>` : ""}</button>`).join("");
+
+  if (tab === "generate") { renderGen(); return; }
 
   // Agrupar posts por ítem de contenido.
   const posts = state.posts.filter((p) => p.status === tab);
@@ -438,6 +523,270 @@ function fmt(d) {
 }
 
 function setTab(t) { tab = t; render(); }
+
+/* ── Pestaña de generación: subir medios, ideas y generar con IA ── */
+
+function renderGen() {
+  const root = document.getElementById("content");
+  const enabled = state.channels.filter((c) => c.enabled).length;
+  const cards = state.items.map((i) => {
+    const posts = state.posts.filter((p) => p.contentItemId === i.id);
+    const missing = enabled - posts.length;
+    const thumb = i.mediaName
+      ? `<img class="gen-item-thumb" src="/media/${encodeURIComponent(i.mediaName)}" alt="">`
+      : "";
+    return `<div class="item">
+      <div class="item-head">
+        <span class="item-title">${esc(i.title)}</span>
+        <span class="item-kind">${i.kind === "media" ? "📎 media (" + esc(i.mediaType || "?") + ")" : "💡 idea"}</span>
+        <span class="spacer"></span>
+        ${thumb}
+      </div>
+      <div class="meta">${posts.length}/${enabled} canales habilitados cubiertos</div>
+      <div class="actions">
+        ${missing > 0 ? `<button class="primary" onclick="genItem('${i.id}')">✨ Generar (${missing})</button>` : `<span class="meta">✓ completo</span>`}
+        <button class="danger" onclick="deleteItem('${i.id}')" title="Eliminar este ítem">🗑</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  root.innerHTML = `
+    <div class="gen-cols">
+      <div class="gen-box">
+        <h3>📁 Subir medios / ideas</h3>
+        <p class="meta">Fotos, vídeos y audio, o archivos de texto (.md/.txt) como ideas. También puedes arrastrar texto suelto.</p>
+        <input type="file" id="fileInput" multiple accept="${MEDIA_ACCEPT},.md,.txt,.markdown" onchange="uploadFiles(this.files)">
+        <div class="gen-drop" id="dropZone">o arrastra y suelta aquí</div>
+        <div class="savestate" id="uploadStatus">${esc(uploadFeedback)}</div>
+      </div>
+      <div class="gen-box">
+        <h3>💡 Nueva idea</h3>
+        <input id="ideaTitle" placeholder="Título de la idea">
+        <textarea id="ideaBody" rows="3" placeholder="Descripción (opcional)"></textarea>
+        <div class="actions"><button class="primary" onclick="addIdea()">➕ Añadir idea</button></div>
+        <div class="savestate" id="ideaStatus">${esc(ideaFeedback)}</div>
+      </div>
+      <div class="gen-box">
+        <h3>🎬 Vídeo por URL</h3>
+        <p class="meta">Pega un enlace de YouTube o TikTok y se descargará solo a content/media (requiere yt-dlp: <code>npm run setup:tools</code>).</p>
+        <input id="videoUrl" placeholder="https://www.youtube.com/watch?v=…">
+        <div class="actions"><button class="primary" onclick="importUrl()">⬇️ Descargar vídeo</button></div>
+        <div class="savestate" id="urlStatus">${esc(urlFeedback)}</div>
+      </div>
+    </div>
+    <div class="gen-actions">
+      <button class="ok" id="genBtn" onclick="runGenerate()">✨ Generar drafts con IA</button>
+      <span class="meta" id="genStatus">${esc(genFeedback)}</span>
+    </div>
+    <h3 style="margin-top:6px">📦 Contenido cargado (${state.items.length})</h3>
+    ${cards || `<div class="empty">Sin contenido aún — sube medios o añade una idea arriba.</div>`}`;
+
+  const dz = document.getElementById("dropZone");
+  if (dz) {
+    dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("over"); });
+    dz.addEventListener("dragleave", () => dz.classList.remove("over"));
+    dz.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dz.classList.remove("over");
+      const files = e.dataTransfer.files;
+      if ((!files || files.length === 0) && e.dataTransfer.getData("text/plain").trim()) {
+        // Texto plano arrastrado → crear una idea (primera línea = título).
+        const lines = e.dataTransfer.getData("text/plain").trim().split("\n");
+        const titleEl = document.getElementById("ideaTitle");
+        const bodyEl = document.getElementById("ideaBody");
+        if (titleEl) titleEl.value = lines[0].slice(0, 80);
+        if (bodyEl) bodyEl.value = lines.slice(1).join("\n").trim();
+        addIdea();
+        return;
+      }
+      uploadFiles(files);
+    });
+  }
+}
+
+function showGenStatus() {
+  const el = document.getElementById("genStatus");
+  if (el) el.textContent = genFeedback;
+}
+
+async function runGenerate() {
+  const btn = document.getElementById("genBtn");
+  btn.disabled = true;
+  genFeedback = "Iniciando generación…";
+  showGenStatus();
+  try {
+    const data = await api("/api/generate", { method: "POST", body: "{}" });
+    if (data.generated === undefined) {
+      // HTTP 202: generación en segundo plano → seguir el progreso en vivo.
+      await pollGeneration();
+      return;
+    }
+    // Modo demo: resultado inmediato.
+    genFeedback = data.generated > 0
+      ? `✓ ${data.generated} draft(s) generados${data.ms ? ` en ${Math.round(data.ms / 1000)}s` : ""}.`
+      : "Sin drafts nuevos (todo cubierto o sin canales habilitados).";
+    btn.disabled = false;
+    showGenStatus();
+    refresh();
+  } catch (err) {
+    genFeedback = "⚠ " + err.message;
+    btn.disabled = false;
+    showGenStatus();
+    refresh();
+  }
+}
+
+async function deleteItem(id) {
+  const item = state.items.find((i) => i.id === id);
+  const label = item ? item.title : "este ítem";
+  const nPosts = state.posts.filter((p) => p.contentItemId === id).length;
+  if (!confirm(`¿Eliminar «${label}»? Se borrará el ítem, sus ${nPosts} draft(s) y el archivo fuente.`)) return;
+  try {
+    await api(`/api/items/${id}`, { method: "DELETE" });
+    genFeedback = `✓ «${label}» eliminado${nPosts ? ` (${nPosts} draft(s))` : ""}.`;
+  } catch (err) {
+    genFeedback = "⚠ " + err.message;
+  }
+  refresh();
+}
+
+async function genItem(id) {
+  genFeedback = "Iniciando…";
+  showGenStatus();
+  try {
+    const data = await api("/api/generate", { method: "POST", body: JSON.stringify({ itemId: id }) });
+    if (data.generated === undefined) {
+      await pollGeneration();
+      return;
+    }
+    genFeedback = data.generated > 0 ? `✓ ${data.generated} draft(s) generados.` : "Sin drafts nuevos.";
+    showGenStatus();
+    refresh();
+  } catch (err) {
+    genFeedback = "⚠ " + err.message;
+    showGenStatus();
+    refresh();
+  }
+}
+
+/** Sigue el progreso de la generación en segundo plano (polling cada 1.2s). */
+async function pollGeneration() {
+  const btn = document.getElementById("genBtn");
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 1200));
+    let p;
+    try {
+      p = await api("/api/generation", { method: "GET" });
+    } catch (err) {
+      genFeedback = "⚠ " + err.message;
+      break;
+    }
+    if (p.running) {
+      // Actualiza solo la línea de estado (no re-renderiza el formulario).
+      genFeedback = p.total > 0 && p.currentItem
+        ? `Generando ${p.index}/${p.total}: «${p.currentItem}» · ${p.generated} draft(s) listos…`
+        : "Generando…";
+      showGenStatus();
+      continue;
+    }
+    genFeedback = p.error
+      ? "⚠ " + p.error
+      : p.generated > 0
+        ? `✓ ${p.generated} draft(s) generados${p.ms ? ` en ${Math.round(p.ms / 1000)}s` : ""}.`
+        : "Sin drafts nuevos (todo cubierto o sin canales habilitados).";
+    break;
+  }
+  if (btn) btn.disabled = false;
+  showGenStatus();
+  refresh();
+}
+
+async function addIdea() {
+  const title = document.getElementById("ideaTitle").value.trim();
+  const body = document.getElementById("ideaBody").value.trim();
+  if (!title) { ideaFeedback = "⚠ Escribe un título"; renderGen(); return; }
+  ideaFeedback = "Guardando…";
+  renderGen();
+  try {
+    const data = await api("/api/ideas", { method: "POST", body: JSON.stringify({ title, body }) });
+    ideaFeedback = `✓ Idea guardada (${data.file})`;
+    document.getElementById("ideaTitle").value = "";
+    document.getElementById("ideaBody").value = "";
+  } catch (err) {
+    ideaFeedback = "⚠ " + err.message;
+  }
+  refresh();
+}
+
+async function uploadFiles(files) {
+  const list = Array.from(files || []);
+  const texts = list.filter((f) => /\.(md|txt|markdown)$/i.test(f.name));
+  const media = list.filter((f) => !/\.(md|txt|markdown)$/i.test(f.name));
+  const status = document.getElementById("uploadStatus");
+  const input = document.getElementById("fileInput");
+  let done = 0;
+  const fails = [];
+
+  async function send(path, file) {
+    if (demoMode) {
+      await demoApi(path, { method: "POST", body: JSON.stringify({ title: file.name }) });
+      return;
+    }
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) },
+      body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  }
+
+  const all = [...texts, ...media];
+  for (let i = 0; i < all.length; i++) {
+    const file = all[i];
+    const kind = texts.includes(file) ? "idea" : "media";
+    if (status) status.textContent = `Subiendo ${kind} ${i + 1}/${all.length}: ${file.name}…`;
+    try {
+      await send(texts.includes(file) ? "/api/ideas-file" : "/api/media", file);
+      done++;
+    } catch (err) {
+      fails.push(file.name + ": " + err.message);
+    }
+  }
+  if (input) input.value = "";
+  uploadFeedback = fails.length
+    ? `⚠ ${done} subido(s), ${fails.length} fallaron: ${fails.join("; ")}`
+    : `✓ ${done} archivo(s) subido(s) e ingeridos.`;
+  refresh();
+}
+
+function showUrlStatus() {
+  const el = document.getElementById("urlStatus");
+  if (el) el.textContent = urlFeedback;
+}
+
+async function importUrl() {
+  const input = document.getElementById("videoUrl");
+  const url = input ? input.value.trim() : "";
+  if (!url) {
+    urlFeedback = "⚠ Pega una URL de YouTube o TikTok.";
+    showUrlStatus();
+    return;
+  }
+  urlFeedback = "Descargando… puede tardar un par de minutos (yt-dlp).";
+  showUrlStatus();
+  try {
+    const data = await api("/api/import-url", { method: "POST", body: JSON.stringify({ url }) });
+    urlFeedback = data.ok
+      ? `✓ ${data.file} (${data.sizeMb ?? "?"} MB) descargado e ingerido.`
+      : `⚠ ${data.error || "error desconocido"}`;
+  } catch (err) {
+    urlFeedback = "⚠ " + err.message;
+  }
+  if (input) input.value = "";
+  showUrlStatus();
+  refresh();
+}
 
 async function schedule(id) {
   await api(`/api/posts/${id}/schedule`, { method: "POST", body: "{}" });

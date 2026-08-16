@@ -50,6 +50,7 @@ export function ingest(config: AgentConfig, store: Store): ContentItem[] {
         title,
         body,
         mediaType: "text",
+        sourceFile: full,
         ingestedAt: now,
       };
       if (store.addContentItem(item)) added.push(item);
@@ -72,6 +73,7 @@ export function ingest(config: AgentConfig, store: Store): ContentItem[] {
         title: basename(file, extname(file)).replace(/[_-]+/g, " "),
         body: `Archivo: ${rel}\nTamaño: ${(stat.size / 1024 / 1024).toFixed(1)} MB`,
         filePath: full,
+        sourceFile: full,
         mediaType: mediaTypeOf(file),
         ingestedAt: now,
       };
