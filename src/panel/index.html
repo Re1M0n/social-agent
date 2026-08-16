@@ -181,13 +181,11 @@ let tab = "draft";
 // Configuración de IA (página ⚙️ Config + wizard del primer arranque).
 let cfg = null;
 let cfgLoading = false;
-let cfgSource = "auto";
 let cfgSpeed = "equilibrado";
 let cfgChannels = {}; // estado habilitado/deshabilitado de cada canal (página ⚙️)
 let cfgChannelLlm = {}; // IA por canal: id del conector asignado ("" = IA global)
 let cfgConnectors = null; // conectores de IA definidos en el panel (globales)
 let cfgPublication = { dryRun: true, autoPublish: false }; // modo de publicación
-let cfgDraft = {}; // valores escritos en el formulario sin guardar aún
 let wizardDone = false;
 
 // ── Modo demo (GitHub Pages: sin backend; datos y acciones simuladas) ──
@@ -363,7 +361,6 @@ function demoConfig() {
 /** Copia la config del servidor a los borradores de la página ⚙️ Config. */
 function syncCfgDrafts() {
   if (!cfg) return;
-  cfgSource = cfg.source || "auto";
   cfgSpeed = (cfg.llm && cfg.llm.speed) || "equilibrado";
   cfgChannels = {};
   cfgChannelLlm = {};
@@ -963,21 +960,11 @@ document.addEventListener("input", (e) => {
 
 /* ── Página ⚙️ Config y wizard del primer arranque ── */
 
-const CFG_SOURCES = [
-  { id: "auto", t: "🔍 Detección automática", d: "Ollama / LM Studio en esta máquina (localhost:11434 / :1234). Si no hay, cae al proveedor gratuito anónimo." },
-  { id: "remote", t: "🖥️ Otra máquina con Ollama (Qwen)", d: "Tu servidor con Qwen: basta con OLLAMA_BASE_URL. Si no indicas modelo, elige el mejor él solo." },
-  { id: "cloud", t: "☁️ API en la nube", d: "OpenAI, OpenRouter, Groq, Gemini… con clave (cualquier API estilo OpenAI)." },
-];
 const CFG_SPEEDS = [
   { id: "ahorro", t: "🐢 Ahorro", d: "Menos RAM/VRAM/calor: contexto corto, mitad de CPUs, modelo descargado a los 5 min y se elige el modelo más pequeño." },
   { id: "equilibrado", t: "⚖️ Equilibrado", d: "Por defecto: contexto 8192, salida 3072, descarga del modelo a los 30 min." },
   { id: "rendimiento", t: "⚡ Rendimiento", d: "Máxima velocidad: contexto amplio, modelo siempre cargado y se elige el más grande." },
 ];
-
-function cfgVal(key, draftId) {
-  const f = (cfg && cfg.form) || {};
-  return cfgDraft[draftId] !== undefined ? cfgDraft[draftId] : (f[key] || "");
-}
 
 function renderConfig() {
   const root = document.getElementById("content");
@@ -1204,29 +1191,8 @@ function cfgSummaryItem(k, v) {
 function configFormHtml() {
   return `
     <div class="cfg-card">
-      <h3>⚙️ ¿De dónde sale la IA?</h3>
-      <div class="cfg-options">
-        ${CFG_SOURCES.map((s) => `
-          <div class="cfg-option ${s.id === cfgSource ? "sel" : ""}" onclick="setCfgSource('${s.id}')">
-            <div class="t">${s.t}</div><div class="d">${s.d}</div>
-          </div>`).join("")}
-      </div>
-      <div class="cfg-fields" style="margin-top:12px">
-        ${cfgSource === "remote" ? `
-          <div class="cfg-field"><label>OLLAMA_BASE_URL — host de la máquina con Qwen (p. ej. http://192.168.1.50:11434)</label>
-            <input id="cfgOllamaUrl" value="${esc(cfgVal("OLLAMA_BASE_URL", "cfgOllamaUrl"))}" placeholder="http://192.168.1.50:11434"></div>
-          <div class="cfg-field"><label>OLLAMA_MODEL (opcional — si lo dejas vacío, elige el mejor modelo disponible)</label>
-            <input id="cfgOllamaModel" value="${esc(cfgVal("OLLAMA_MODEL", "cfgOllamaModel"))}" placeholder="qwen2.5:7b"></div>`
-        : cfgSource === "cloud" ? `
-          <div class="cfg-field"><label>LLM_API_KEY — clave de OpenAI / OpenRouter / Groq / Gemini…</label>
-            <input id="cfgApiKey" type="password" value="${esc(cfgVal("LLM_API_KEY", "cfgApiKey"))}" placeholder="sk-…"></div>
-          <div class="cfg-field"><label>LLM_BASE_URL — endpoint compatible con Chat Completions</label>
-            <input id="cfgBaseUrl" value="${esc(cfgVal("LLM_BASE_URL", "cfgBaseUrl") || "https://api.openai.com/v1")}"></div>
-          <div class="cfg-field"><label>LLM_MODEL</label>
-            <input id="cfgModel" value="${esc(cfgVal("LLM_MODEL", "cfgModel") || "gpt-4o-mini")}"></div>`
-        : `<p class="meta">Detección automática activa: si tienes Ollama o LM Studio arrancados (aquí o vía OLLAMA_BASE_URL), el agente los usa sin más configuración. Si no, cae al proveedor gratuito anónimo.</p>`}
-      </div>
-      <h3 style="margin-top:16px">🐢⚡ Potencia / velocidad (cuida el hardware de tu Qwen)</h3>
+      <h3>🐢⚡ Potencia / velocidad por defecto</h3>
+      <p class="meta">Ajusta el consumo de hardware de la IA global (cada conector puede llevar la suya). La IA global se define sola: detección automática local o lo que ponga tu .env.</p>
       <div class="cfg-options">
         ${CFG_SPEEDS.map((s) => `
           <div class="cfg-option ${s.id === cfgSpeed ? "sel" : ""}" onclick="setCfgSpeed('${s.id}')">
@@ -1242,7 +1208,6 @@ function configFormHtml() {
     </div>`;
 }
 
-function setCfgSource(id) { cfgSource = id; rerenderConfigForm(); }
 function setCfgSpeed(id) { cfgSpeed = id; rerenderConfigForm(); }
 
 /** Re-renderiza el formulario de config en el sitio visible (wizard o pestaña). */
@@ -1256,23 +1221,9 @@ function rerenderConfigForm() {
 }
 
 async function saveCfg(test) {
-  const f = (cfg && cfg.form) || {};
   const vars = {
-    LLM_LOCAL: "auto",
     LLM_SPEED: cfgSpeed,
-    LLM_API_KEY: "", LLM_BASE_URL: "", LLM_MODEL: "",
-    OLLAMA_BASE_URL: "", OLLAMA_MODEL: "",
-    LLM_FREE_FALLBACK: "", LLM_ENABLED: "",
   };
-  if (cfgSource === "remote") {
-    vars.LLM_LOCAL = "on";
-    vars.OLLAMA_BASE_URL = cfgVal("OLLAMA_BASE_URL", "cfgOllamaUrl");
-    vars.OLLAMA_MODEL = cfgVal("OLLAMA_MODEL", "cfgOllamaModel");
-  } else if (cfgSource === "cloud") {
-    vars.LLM_API_KEY = cfgVal("LLM_API_KEY", "cfgApiKey");
-    vars.LLM_BASE_URL = cfgVal("LLM_BASE_URL", "cfgBaseUrl") || "https://api.openai.com/v1";
-    vars.LLM_MODEL = cfgVal("LLM_MODEL", "cfgModel") || "gpt-4o-mini";
-  }
   // Modo de publicación.
   vars.DRY_RUN = cfgPublication.dryRun ? "1" : "0";
   vars.AUTO_PUBLISH = cfgPublication.autoPublish ? "1" : "0";
@@ -1309,7 +1260,6 @@ async function saveCfg(test) {
         state.autoPublish = data.config.publication.autoPublish;
       }
     }
-    cfgDraft = {};
     wizardDone = true;
     hideWizard();
     if (tab === "config") render();
@@ -1342,7 +1292,7 @@ function renderWizardForm() {
   overlay.innerHTML = `
     <div id="wizardCard">
       <h2>👋 ¡Bienvenido a Social Agent!</h2>
-      <p class="sub">Antes de empezar, elige con qué IA va a generar el contenido: detección automática, tu máquina con Qwen, o una API en la nube. Puedes cambiarlo después en la pestaña ⚙️ Config.</p>
+      <p class="sub">El agente ya funciona con la IA que detecte en tu equipo (Ollama local, tu máquina con Qwen o tu .env) y, si no hay, con el proveedor gratuito anónimo. Si quieres definir varias IAs y asignarlas por canal, usa la pestaña ⚙️ Config → 🔌 Conectores.</p>
       ${configFormHtml()}
       <div class="actions" style="margin-top:14px">
         <button class="primary" onclick="saveCfg(true)">🚀 Probar y guardar</button>
@@ -1367,9 +1317,7 @@ document.addEventListener("input", (e) => {
   if (m) {
     const c = (cfgConnectors || [])[Number(m[1])];
     if (c) c[m[2]] = e.target.value;
-    return;
   }
-  if (id.startsWith("cfg")) cfgDraft[id] = e.target.value;
 });
 
 refresh();

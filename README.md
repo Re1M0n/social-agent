@@ -303,23 +303,24 @@ publicar, con el flujo aprobar/descartar en vivo:
   desplegable.
 - **Acciones**: ✅ Aprobar todos (programa en horarios óptimos), 🕐 Programar
   (aprueba un draft), 🚀 Publicar ahora, 🔁 Reintentar fallidos y 🗑 Descartar.
-- **Pestaña ⚙️ Config**: elige de dónde sale la IA global (detección automática,
-  otra máquina con Ollama/Qwen vía `OLLAMA_BASE_URL`, o API en la nube con
-  clave), el selector 🐢⚡ potencia/velocidad (`ahorro`/`equilibrado`/`rendimiento`),
-  **🔌 Conectores de IA** (define varias IAs con nombre: local, tu máquina con
-  Qwen, APIs en la nube…), **🧠 IA por canal** (cada plataforma elige uno de esos
-  conectores o la global) y un **selector de canales** para habilitar/deshabilitar
-  cada plataforma (con indicación de si tiene credenciales), además del **modo
-  de publicación** (🧪 simulación/en vivo con `DRY_RUN` y 🤖 autónomo/borradores
-  con `AUTO_PUBLISH`) y la **ruta del `.env`** con botones para 👁️ abrirlo y ⬇️
-  descargarlo (panel local), con botón **🧪 Probar y guardar** que comprueba la
-  conexión en vivo. Lo que guardes se persiste en `data/ui-config.json`
-  (ignorado por git) y se aplica **en caliente** a la generación y al estado
-  del panel, sin reiniciarlo; los conectores y su asignación por canal los lee
-  también el CLI (`generate`, `serve`, `llm:check`…) sin abrir el panel.
+- **Pestaña ⚙️ Config**: resumen de la **IA en uso ahora mismo**, **🔌 Conectores
+  de IA** (define varias IAs con nombre: local, tu máquina con Qwen, APIs en la
+  nube…), **🧠 IA por canal** (cada plataforma elige uno de esos conectores o la
+  global), el selector 🐢⚡ potencia/velocidad por defecto
+  (`ahorro`/`equilibrado`/`rendimiento`), un **selector de canales** para
+  habilitar/deshabilitar cada plataforma (con indicación de si tiene
+  credenciales), el **modo de publicación** (🧪 simulación/en vivo con `DRY_RUN`
+  y 🤖 autónomo/borradores con `AUTO_PUBLISH`) y la **ruta del `.env`** con
+  botones para 👁️ abrirlo y ⬇️ descargarlo (panel local), con botón **🧪 Probar
+  y guardar** que comprueba la conexión en vivo. La IA global no se configura
+  aquí: se detecta sola (Ollama/LM Studio local, `OLLAMA_BASE_URL` o el `.env`).
+  Lo que guardes se persiste en `data/ui-config.json` (ignorado por git) y se
+  aplica **en caliente** a la generación y al estado del panel, sin reiniciarlo;
+  los conectores y su asignación por canal los lee también el CLI (`generate`,
+  `serve`, `llm:check`…) sin abrir el panel.
 - **👋 Primer arranque**: la primera vez que abras el panel (o si no hay IA
-  configurada), un asistente te pide elegir la IA antes de empezar; puedes
-  omitirlo y volver luego a la pestaña ⚙️ Config.
+  configurada), un asistente te da la bienvenida y te lleva a la ⚙️ Config para
+  definir conectores; puedes omitirlo y volver luego.
 - **Media preview**: imágenes/videos adjuntos visibles en el propio panel.
 - **Pestaña ⚡ Generar**: sube fotos/vídeos/audio (arrastrando o con el botón) a
   `content/media/` y añade ideas de texto, y todo se ingiere al instante. Con el
