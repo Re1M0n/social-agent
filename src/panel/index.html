@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Social Agent · Panel de revisión</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #171a21; --card2: #1e222c; --border: #2a2f3a;
+    --text: #e8eaef; --muted: #9aa3b2; --accent: #6c8cff; --ok: #3ecf8e; --err: #ff5d5d; --warn: #ffc94d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 20px; }
+  h1 { font-size: 20px; display: flex; align-items: center; gap: 10px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 18px; }
+  .badge { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge.dry { background: rgba(255,201,77,.15); color: var(--warn); border: 1px solid rgba(255,201,77,.4); }
+  .badge.live { background: rgba(62,207,142,.15); color: var(--ok); border: 1px solid rgba(62,207,142,.4); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: var(--card); border: 1px solid var(--border); padding: 3px 10px; border-radius: 999px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot.on { background: var(--ok); } .dot.off { background: #555d6b; }
+  button { cursor: pointer; border-radius: 8px; border: 1px solid var(--border); background: var(--card2); color: var(--text); padding: 6px 14px; font-size: 13px; transition: filter .15s; }
+  button:hover { filter: brightness(1.2); }
+  button.primary { background: var(--accent); border-color: transparent; color: #0b0e14; font-weight: 600; }
+  button.ok { background: var(--ok); border-color: transparent; color: #0b0e14; font-weight: 600; }
+  button.danger { background: rgba(255,93,93,.12); color: var(--err); border-color: rgba(255,93,93,.35); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+  .tab { border-radius: 8px 8px 0 0; border-bottom: 2px solid transparent; }
+  .tab.active { border-bottom-color: var(--accent); background: var(--card); color: var(--text); }
+  .tab .cnt { color: var(--muted); font-size: 12px; }
+  .item { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 18px; }
+  .item-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .item-title { font-weight: 600; }
+  .item-kind { font-size: 11px; color: var(--muted); background: var(--card2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; }
+  .item-media { display: flex; gap: 8px; margin-bottom: 12px; }
+  .item-media img, .item-media video { max-height: 90px; border-radius: 8px; border: 1px solid var(--border); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+  .post { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .post-head { display: flex; align-items: center; gap: 8px; }
+  .plat { font-weight: 700; font-size: 13px; padding: 2px 10px; border-radius: 6px; color: #fff; }
+  .status { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+  .status.draft { background: #3b4252; color: #cdd6e4; }
+  .status.scheduled { background: rgba(108,140,255,.18); color: #a9bdff; }
+  .status.published { background: rgba(62,207,142,.16); color: var(--ok); }
+  .status.failed { background: rgba(255,93,93,.16); color: var(--err); }
+  .spacer { flex: 1; }
+  .counter { font-size: 12px; color: var(--muted); }
+  .counter.over { color: var(--err); font-weight: 700; }
+  .prev { background: #fff; color: #111; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+  .prev .p-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .prev .p-avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; color: #fff; }
+  .prev .p-name { font-weight: 700; font-size: 12px; }
+  .prev .p-handle { font-size: 11px; color: #555; }
+  .prev .p-text { white-space: pre-wrap; word-break: break-word; }
+  .prev .p-more { color: #555; }
+  .prev .p-actions { display: flex; gap: 14px; margin-top: 8px; color: #666; font-size: 13px; }
+  .prev .p-media { margin-top: 8px; border-radius: 8px; max-width: 100%; max-height: 140px; }
+  .prev .p-hash { color: #1a73e8; }
+  textarea { width: 100%; background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font: inherit; resize: vertical; min-height: 90px; }
+  textarea.over { border-color: var(--err); }
+  .tags { font-size: 12px; color: var(--muted); }
+  .tags input { background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; width: 100%; font: inherit; }
+  details { font-size: 12px; color: var(--muted); }
+  details summary { cursor: pointer; }
+  details p { margin-top: 6px; background: #12151c; border-radius: 6px; padding: 8px; color: var(--muted); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .meta { font-size: 12px; color: var(--muted); }
+  .meta a { color: var(--accent); }
+  .error { color: var(--err); font-size: 12px; background: rgba(255,93,93,.08); border-radius: 6px; padding: 6px 8px; }
+  .variants { display: flex; flex-direction: column; gap: 6px; }
+  .v-title { font-size: 12px; color: var(--muted); }
+  .variant { display: flex; align-items: center; gap: 8px; background: #12151c; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+  .v-label { font-weight: 700; color: var(--accent); }
+  .v-text { flex: 1; color: var(--muted); }
+  .v-use { padding: 2px 10px; font-size: 11px; }
+  .savestate { font-size: 11px; color: var(--muted); min-height: 15px; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+  .banner { background: rgba(255,201,77,.1); border: 1px solid rgba(255,201,77,.35); color: var(--warn); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 Social Agent <span class="badge dry" id="modeBadge">DRY-RUN</span></h1>
+  <div class="chips" id="chips"></div>
+  <div class="spacer"></div>
+  <button onclick="refresh()">↻ Actualizar</button>
+  <button class="primary" onclick="approveAll()">✅ Aprobar todos los pendientes</button>
+</header>
+
+<div class="banner" id="dryBanner" hidden>
+  ⚠️ <b>Modo simulación (DRY_RUN=1)</b>: "Publicar" marca los posts como publicados sin tocar APIs reales.
+  Quita <code>DRY_RUN=1</code> del <code>.env</code> para publicar de verdad.
+</div>
+
+<div class="tabs" id="tabs"></div>
+<div id="content"></div>
+
+<script>
+"use strict";
+const PLATFORM_META = {
+  mastodon:  { emoji: "🐘", color: "#6364FF", name: "Mastodon" },
+  bluesky:   { emoji: "🦋", color: "#0085FF", name: "Bluesky" },
+  twitter:   { emoji: "𝕏",  color: "#111418", name: "X" },
+  linkedin:  { emoji: "💼", color: "#0A66C2", name: "LinkedIn" },
+  instagram: { emoji: "📷", color: "#E1306C", name: "Instagram" },
+  facebook:  { emoji: "👥", color: "#1877F2", name: "Facebook" },
+  tiktok:    { emoji: "🎵", color: "#000000", name: "TikTok" },
+};
+const TAB_LABEL = { draft: "Pendientes", scheduled: "Programados", published: "Publicados", failed: "Fallidos" };
+let state = null;
+let tab = "draft";
+
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function hashtagify(text) {
+  return esc(text).replace(/#([\wáéíóúñü]+)/g, '<span class="p-hash">#$1</span>');
+}
+
+async function api(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+async function refresh() {
+  state = await api("/api/state");
+  render();
+}
+
+function render() {
+  // Modo.
+  const dry = state.dryRun;
+  const badge = document.getElementById("modeBadge");
+  badge.textContent = dry ? "DRY-RUN (simulación)" : "EN VIVO";
+  badge.className = "badge " + (dry ? "dry" : "live");
+  document.getElementById("dryBanner").hidden = !dry;
+
+  // Chips de canales.
+  document.getElementById("chips").innerHTML = state.channels.map((c) =>
+    `<span class="chip"><span class="dot ${c.enabled ? "on" : "off"}"></span>${esc(c.name)}</span>`).join("");
+
+  // Tabs con contadores.
+  const counts = { draft: 0, scheduled: 0, published: 0, failed: 0 };
+  state.posts.forEach((p) => counts[p.status] = (counts[p.status] || 0) + 1);
+  document.getElementById("tabs").innerHTML = Object.keys(TAB_LABEL).map((t) =>
+    `<button class="tab ${t === tab ? "active" : ""}" onclick="setTab('${t}')">${TAB_LABEL[t]} <span class="cnt">(${counts[t]})</span></button>`).join("");
+
+  // Agrupar posts por ítem de contenido.
+  const posts = state.posts.filter((p) => p.status === tab);
+  const byItem = new Map();
+  for (const p of posts) {
+    if (!byItem.has(p.contentItemId)) byItem.set(p.contentItemId, []);
+    byItem.get(p.contentItemId).push(p);
+  }
+  const items = state.items.filter((i) => byItem.has(i.id));
+
+  const root = document.getElementById("content");
+  if (items.length === 0) {
+    root.innerHTML = `<div class="empty">Sin posts ${TAB_LABEL[tab].toLowerCase()}${tab === "draft" ? " — ejecuta <code>npm run generate</code> primero" : ""}.</div>`;
+    return;
+  }
+  root.innerHTML = items.map((item) => {
+    const itemPosts = byItem.get(item.id);
+    return `<div class="item">
+      <div class="item-head">
+        <span class="item-title">${esc(item.title)}</span>
+        <span class="item-kind">${item.kind === "media" ? "📎 media (" + item.mediaType + ")" : "💡 idea"}</span>
+      </div>
+      ${itemMedia(item)}
+      <div class="grid">${itemPosts.map(postCard).join("")}</div>
+    </div>`;
+  }).join("");
+}
+
+function itemMedia(item) {
+  if (!item.filePath) return "";
+  const name = item.mediaName;
+  const url = "/media/" + encodeURIComponent(name);
+  const tag = item.mediaType === "video"
+    ? `<video src="${url}" controls muted></video>`
+    : item.mediaType === "audio" ? `<audio src="${url}" controls></audio>`
+    : `<img src="${url}" alt="">`;
+  return `<div class="item-media">${tag}</div>`;
+}
+
+function postCard(p) {
+  const meta = PLATFORM_META[p.channel];
+  const limit = state.channels.find((c) => c.id === p.channel)?.limit ?? 500;
+  const over = p.text.length > limit;
+  const statusLabel = TAB_LABEL[p.status];
+  const mediaHtml = (p.mediaPaths || []).map((m) => {
+    const name = m.split(/[\\/]/).pop();
+    const url = "/media/" + encodeURIComponent(name);
+    return /\.(mp4|mov|webm|m4v)$/i.test(name) ? `<video class="p-media" src="${url}" controls muted></video>`
+         : /\.(mp3|wav|m4a|ogg)$/i.test(name) ? `<audio class="p-media" src="${url}" controls></audio>`
+         : `<img class="p-media" src="${url}" alt="">`;
+  }).join("");
+
+  let actions = "";
+  let metaLine = "";
+  if (p.status === "draft") {
+    actions = `<button class="ok" onclick="publish('${p.id}')">🚀 Publicar ahora</button>
+               <button class="primary" onclick="schedule('${p.id}')">🕐 Programar</button>
+               <button class="danger" onclick="discard('${p.id}')">🗑 Descartar</button>`;
+  } else if (p.status === "scheduled") {
+    metaLine = `Programado: <b>${fmt(new Date(p.scheduledFor))}</b>`;
+    actions = `<button class="ok" onclick="publish('${p.id}')">🚀 Publicar ahora</button>
+               <button class="danger" onclick="discard('${p.id}')">🗑 Descartar</button>`;
+  } else if (p.status === "published") {
+    const url = p.postUrl?.startsWith("dry-run://") ? `<span>${esc(p.postUrl)}</span>` : `<a href="${esc(p.postUrl)}" target="_blank">${esc(p.postUrl)}</a>`;
+    metaLine = `Publicado: <b>${fmt(new Date(p.publishedAt))}</b> · ${url}`;
+  } else if (p.status === "failed") {
+    metaLine = `<div class="error">❌ ${esc(p.error)}</div>`;
+    actions = `<button class="ok" onclick="publish('${p.id}')">🔁 Reintentar</button>
+               <button class="danger" onclick="discard('${p.id}')">🗑 Descartar</button>`;
+  }
+
+  return `<div class="post" data-id="${p.id}">
+    <div class="post-head">
+      <span class="plat" style="background:${meta.color}">${meta.emoji} ${esc(meta.name)}</span>
+      <span class="status ${p.status}">${statusLabel}</span>
+      <span class="spacer"></span>
+      <span class="counter ${over ? "over" : ""}">${p.text.length} / ${limit}</span>
+    </div>
+    ${platformPreview(p)}
+    <textarea class="${over ? "over" : ""}" rows="4" data-field="text" data-id="${p.id}">${esc(p.text)}</textarea>
+    ${p.variants && p.variants.length ? `<div class="variants">
+      <div class="v-title">🧪 Variantes A/B (ganchos alternativos)</div>
+      ${p.variants.map((v, i) => `<div class="variant"><span class="v-label">${String.fromCharCode(65 + i)}</span><span class="v-text">${esc(v.slice(0, 95))}${v.length > 95 ? "…" : ""}</span><button class="v-use" onclick="useVariant('${p.id}', ${i})">Usar</button></div>`).join("")}
+    </div>` : ""}
+    <div class="tags">Etiquetas:
+      <input data-field="tags" data-id="${p.id}" value="${esc((p.tags || []).join(", "))}" placeholder="hashtags separados por coma">
+    </div>
+    <div class="savestate" data-save="${p.id}"></div>
+    ${p.rationale ? `<details><summary>🧠 Estrategia</summary><p>${esc(p.rationale)}</p></details>` : ""}
+    ${mediaHtml}
+    ${metaLine}
+    <div class="actions">${actions}</div>
+  </div>`;
+}
+
+function platformPreview(p) {
+  const m = PLATFORM_META[p.channel];
+  const firstLine = p.text.split("\n")[0] || "";
+  const rest = p.text.split("\n").slice(1).join("\n");
+  const more = p.channel === "linkedin" && p.text.length > 180 ? `<span class="p-more">…ver más</span>` : "";
+  const base = `
+    <div class="p-head"><div class="p-avatar" style="background:${m.color}">${m.emoji}</div>
+    <div><div class="p-name">@marca</div><div class="p-handle">${esc(m.name)} · ahora</div></div></div>`;
+  const body = `<div class="p-text">${hashtagify(firstLine)}${rest ? "\n" + hashtagify(rest) : ""}${more}</div>`;
+  const actions = `<div class="p-actions"><span>💬</span><span>↻</span><span>♥</span></div>`;
+  switch (p.channel) {
+    case "linkedin":
+      return `<div class="prev" style="border-top:3px solid ${m.color}">${base}<div class="p-name" style="font-size:12px;color:#333">Publicación · ${p.text.length} caracteres</div>${body}${actions}</div>`;
+    case "instagram":
+      return `<div class="prev" style="border-top:3px solid ${m.color}">${base}<div class="p-media" style="background:#ddd;height:90px;display:grid;place-items:center;color:#888">📷 Media</div><div class="p-text" style="margin-top:6px">${hashtagify(p.text.slice(0, 400))}</div>${actions}</div>`;
+    case "tiktok":
+      return `<div class="prev" style="border-top:3px solid ${m.color};background:#0f0f0f;color:#eee">${base}<div class="p-media" style="background:#222;height:100px;display:grid;place-items:center">🎬 Video</div><div class="p-text" style="margin-top:6px">${hashtagify(p.text.slice(0, 300))}</div></div>`;
+    default:
+      return `<div class="prev" style="border-top:3px solid ${m.color}">${base}${body}${actions}</div>`;
+  }
+}
+
+function fmt(d) {
+  return d.toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" });
+}
+
+function setTab(t) { tab = t; render(); }
+
+async function schedule(id) {
+  await api(`/api/posts/${id}/schedule`, { method: "POST", body: "{}" });
+  refresh();
+}
+async function publish(id) {
+  await api(`/api/posts/${id}/publish`, { method: "POST", body: "{}" });
+  refresh();
+}
+async function discard(id) {
+  if (!confirm("¿Descartar este draft?")) return;
+  await api(`/api/posts/${id}/discard`, { method: "POST", body: "{}" });
+  refresh();
+}
+async function useVariant(id, idx) {
+  const post = state.posts.find((p) => p.id === id);
+  if (!post || !post.variants) return;
+  const text = post.variants[idx];
+  const ta = document.querySelector(`.post[data-id="${id}"] textarea[data-field="text"]`);
+  if (ta) ta.value = text;
+  await api(`/api/posts/${id}/edit`, { method: "PATCH", body: JSON.stringify({ text }) });
+  refresh();
+}
+async function approveAll() {
+  const data = await api("/api/posts/approve-all", { method: "POST", body: "{}" });
+  alert(`✅ ${data.scheduled} draft(s) programados en horarios óptimos.`);
+  refresh();
+}
+
+// Autoguardado con debounce al editar texto o etiquetas.
+let timers = {};
+document.addEventListener("input", (e) => {
+  const field = e.target.dataset.field;
+  if (!field) return;
+  const id = e.target.dataset.id;
+  const saveEl = document.querySelector(`[data-save="${id}"]`);
+  clearTimeout(timers[id]);
+  if (saveEl) saveEl.textContent = "guardando…";
+  timers[id] = setTimeout(async () => {
+    const payload = {};
+    if (field === "text") payload.text = e.target.value;
+    if (field === "tags") payload.tags = e.target.value.split(",").map((t) => t.trim()).filter(Boolean);
+    try {
+      await api(`/api/posts/${id}/edit`, { method: "PATCH", body: JSON.stringify(payload) });
+      if (saveEl) saveEl.textContent = "✓ guardado";
+      if (field === "text") {
+        const card = e.target.closest(".post");
+        const counter = card.querySelector(".counter");
+        const limit = state.channels.find((c) => c.id === state.posts.find((p) => p.id === id)?.channel)?.limit ?? 500;
+        const over = payload.text.length > limit;
+        counter.textContent = `${payload.text.length} / ${limit}`;
+        counter.classList.toggle("over", over);
+        e.target.classList.toggle("over", over);
+      }
+    } catch (err) {
+      if (saveEl) saveEl.textContent = "⚠ error al guardar";
+    }
+  }, 600);
+});
+
+refresh();
+</script>
+</body>
+</html>

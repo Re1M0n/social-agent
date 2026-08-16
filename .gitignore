@@ -1,0 +1,21 @@
+# Dependencias y build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Estado de runtime y datos locales (nunca subir a GitHub)
+.env
+data/
+reports/
+*.log
+
+# Media e informes generados por el agente
+content/media/gen-*.png
+content/calendario-editorial.md
+
+# Entorno del agente Freebuff
+.freebuff/
+
+# Sistema
+.DS_Store
+Thumbs.db
