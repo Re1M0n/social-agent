@@ -20,7 +20,7 @@ content/media/*     ─┘   (detecta)   (LLM por      (horarios    (API real
 ```
 
 1. **Ingesta** — deja ideas en `content/ideas/` (archivos `.md`/`.txt`) y fotos/videos en `content/media/`. El agente los detecta al vuelo.
-2. **Generación** — el agente experto convierte cada idea en **una publicación por plataforma**, con el tono, formato, hashtags y límites de caracteres de cada red. **Habla con la IA por defecto**: sin `LLM_API_KEY` usa un proveedor gratuito anónimo (Kilo Code, sin registro) y, si falla, cae a plantillas de calidad decente. Comprueba la conexión con `npm run llm:check`.
+2. **Generación** — el agente experto convierte cada idea en **una publicación por plataforma**, con el tono, formato, hashtags y límites de caracteres de cada red. **Habla con la IA por defecto**: sin `LLM_API_KEY` detecta una **IA local** (Ollama/LM Studio, incluso en otra máquina con Qwen); si no hay, usa un proveedor gratuito anónimo (Kilo Code, sin registro) y, si falla, cae a plantillas de calidad decente. Comprueba la conexión con `npm run llm:check`.
 3. **Programación** — en modo autónomo calcula el **mejor horario** para cada canal y respeta un intervalo mínimo anti-spam.
 4. **Publicación** — sube la media (imagen/video) y publica en cada canal con su API oficial.
 
@@ -87,6 +87,10 @@ AUTO_PUBLISH=1 DRY_RUN=0 npm run serve
 | `LLM_BASE_URL` | Endpoint compatible con Chat Completions | OpenAI |
 | `LLM_MODEL` | Modelo a usar | `gpt-4o-mini` |
 | `LLM_FREE_FALLBACK` | `1` = sin key usa el proveedor gratuito anónimo (Kilo); `0` = solo plantillas | `1` |
+| `LLM_LOCAL` | `auto` = detecta IA local/remota (Ollama, LM Studio, Qwen); `1` = forzar; `0` = off | `auto` |
+| `OLLAMA_BASE_URL` | Host de una máquina remota con Ollama (p. ej. con Qwen) | — |
+| `OLLAMA_MODEL` | Modelo a usar en esa máquina (opcional: si no, elige el mejor) | — |
+| `LLM_SPEED` | Selector de potencia/velocidad: `ahorro` \| `equilibrado` \| `rendimiento` | `equilibrado` |
 
 ### Credenciales por canal
 
@@ -102,6 +106,54 @@ AUTO_PUBLISH=1 DRY_RUN=0 npm run serve
 
 > Un canal se habilita automáticamente cuando tiene credenciales, o explícitamente
 > con `CHANNEL_<CANAL>_ENABLED=1` (por ejemplo `CHANNEL_TIKTOK_ENABLED=1`).
+
+### 🤖 IA local o remota (Ollama, LM Studio, Qwen) — automática
+
+Si tienes **Ollama** o **LM Studio** arrancados en tu máquina
+(`localhost:11434` / `localhost:1234`), el agente los detecta **solo** y usa el
+mejor modelo disponible (prefiere Qwen, Llama, Gemma, Mistral, DeepSeek, Phi…),
+sin tocar el `.env`:
+
+```bash
+ollama pull qwen2.5:7b        # una sola vez (o el modelo que quieras)
+npm run llm:check             # verás: IA ollama — modelo qwen2.5:7b
+```
+
+¿Tienes Qwen (u Ollama) en **otra máquina**? Apunta con `OLLAMA_BASE_URL`:
+
+```bash
+# .env
+OLLAMA_BASE_URL=http://192.168.1.50:11434   # máquina con Qwen
+OLLAMA_MODEL=qwen2.5:7b                     # opcional: si no, elige el mejor
+```
+
+- `LLM_LOCAL=auto` (por defecto): usa la IA local/remota si responde; si no,
+  cae al proveedor gratuito anónimo (Kilo) y, si falla, a plantillas.
+- `LLM_LOCAL=1`: fuerza la IA local (avisa si no responde).
+- `LLM_LOCAL=0`: desactiva la detección (configuración manual con
+  `LLM_BASE_URL`/`LLM_MODEL`, como antes).
+- Con `LLM_API_KEY` configurada, la detección se ignora: manda tu proveedor.
+
+### 🐢⚡ Selector de potencia/velocidad (cuidar el hardware)
+
+Para **cuidar el hardware** de tu máquina con Qwen (temperatura, RAM/VRAM,
+consumo), el agente habla con Ollama por su **API nativa** y ajusta según
+`LLM_SPEED` (`ahorro` | `equilibrado` | `rendimiento`):
+
+| Modo | Contexto | Máx. salida | Modelo en RAM | CPUs | Modelo elegido |
+|---|---|---|---|---|---|
+| **ahorro** 🐢 | 6144 | 2048 | se descarga a los 5 min | mitad | el más pequeño (p. ej. `qwen2.5:3b`) |
+| **equilibrado** | 8192 | 3072 | se descarga a los 30 min | todas | según familia/versión |
+| **rendimiento** ⚡ | 16384 | 4096 | siempre cargado | todas | el más grande (p. ej. `qwen2.5:14b`) |
+
+```bash
+# .env
+LLM_SPEED=ahorro        # menos calor y consumo en la máquina de Qwen
+```
+
+`npm run llm:check` te muestra el modo activo. En modo ahorro se usa la mitad
+de los hilos de CPU y se limita el contexto, así el modelo no trabaja de más
+cuando no hace falta.
 
 ### 🔑 Verificación de credenciales en vivo
 
@@ -251,6 +303,15 @@ publicar, con el flujo aprobar/descartar en vivo:
   desplegable.
 - **Acciones**: ✅ Aprobar todos (programa en horarios óptimos), 🕐 Programar
   (aprueba un draft), 🚀 Publicar ahora, 🔁 Reintentar fallidos y 🗑 Descartar.
+- **Pestaña ⚙️ Config (IA)**: elige de dónde sale la IA (detección automática,
+  otra máquina con Ollama/Qwen vía `OLLAMA_BASE_URL`, o API en la nube con
+  clave) y el selector 🐢⚡ potencia/velocidad (`ahorro`/`equilibrado`/`rendimiento`),
+  con botón **🧪 Probar y guardar** que comprueba la conexión en vivo. Lo que
+  guardes se persiste en `data/ui-config.json` (ignorado por git) y se aplica
+  **en caliente** a la generación, sin reiniciar el panel.
+- **👋 Primer arranque**: la primera vez que abras el panel (o si no hay IA
+  configurada), un asistente te pide elegir la IA antes de empezar; puedes
+  omitirlo y volver luego a la pestaña ⚙️ Config.
 - **Media preview**: imágenes/videos adjuntos visibles en el propio panel.
 - **Pestaña ⚡ Generar**: sube fotos/vídeos/audio (arrastrando o con el botón) a
   `content/media/` y añade ideas de texto, y todo se ingiere al instante. Con el

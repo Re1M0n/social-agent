@@ -90,6 +90,30 @@
   .gen-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
   .gen-box input[type="file"] { font-size: 12px; }
   .gen-item-thumb { max-height: 60px; border-radius: 6px; border: 1px solid var(--border); }
+  /* Página ⚙️ Config y wizard del primer arranque */
+  .cfg { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
+  .cfg-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  .cfg-card h3 { font-size: 14px; margin-bottom: 10px; }
+  .cfg-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .cfg-summary > div { background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+  .cfg-summary .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .cfg-summary .v { font-weight: 600; word-break: break-all; }
+  .cfg-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+  .cfg-option { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
+  .cfg-option.sel { border-color: var(--accent); background: rgba(108,140,255,.08); }
+  .cfg-option .t { font-weight: 600; font-size: 13px; }
+  .cfg-option .d { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .cfg-fields { display: flex; flex-direction: column; gap: 10px; }
+  .cfg-field label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  .cfg-field input { width: 100%; background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; }
+  .cfg-result { margin-top: 12px; }
+  .cfg-result .ok, .cfg-result .err { border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+  .cfg-result .ok { background: rgba(62,207,142,.1); color: var(--ok); }
+  .cfg-result .err { background: rgba(255,93,93,.1); color: var(--err); }
+  #wizardOverlay { position: fixed; inset: 0; background: rgba(10,12,16,.85); backdrop-filter: blur(3px); display: grid; place-items: center; z-index: 50; padding: 20px; overflow: auto; }
+  #wizardCard { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 22px; max-width: 720px; width: 100%; max-height: 92vh; overflow: auto; }
+  #wizardCard h2 { font-size: 18px; margin-bottom: 6px; }
+  #wizardCard .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
 </style>
 </head>
 <body>
@@ -139,6 +163,13 @@ const TAB_LABEL = { draft: "Pendientes", scheduled: "Programados", published: "P
 const MEDIA_ACCEPT = ".jpg,.jpeg,.png,.gif,.webp,.heic,.bmp,.mp4,.mov,.webm,.mkv,.avi,.m4v,.mp3,.wav,.m4a,.ogg";
 let state = null;
 let tab = "draft";
+// Configuración de IA (página ⚙️ Config + wizard del primer arranque).
+let cfg = null;
+let cfgLoading = false;
+let cfgSource = "auto";
+let cfgSpeed = "equilibrado";
+let cfgDraft = {}; // valores escritos en el formulario sin guardar aún
+let wizardDone = false;
 
 // ── Modo demo (GitHub Pages: sin backend; datos y acciones simuladas) ──
 let demoMode = false;
@@ -262,6 +293,10 @@ async function demoApi(url, opts = {}) {
     demoStore.state.items.push({ id, kind: "media", title: name, body: "Archivo: demo", filePath: "/demo/" + name, mediaType: "photo", ingestedAt: new Date().toISOString() });
     return { ok: true, file: name, itemId: id };
   }
+  if (method === "GET" && path === "/api/config") return demoConfig();
+  if (method === "POST" && path === "/api/config") {
+    return { ok: true, config: demoConfig(), test: { ok: true, answer: "ok (demo)", ms: 140 } };
+  }
   const m = path.match(/^\/api\/posts\/([^/]+)\/([a-z-]+)$/);
   if (m) {
     const [, id, action] = m;
@@ -291,10 +326,22 @@ async function demoApi(url, opts = {}) {
   throw new Error("Ruta no soportada en el modo demo");
 }
 
+function demoConfig() {
+  return {
+    llm: { provider: "kilo-anon", baseUrl: "https://api.kilo.ai/api/gateway", model: "openrouter/free", apiKeySet: false, localLlm: "auto", speed: "equilibrado" },
+    source: "auto",
+    firstInstall: false,
+    form: { LLM_API_KEY: "", LLM_BASE_URL: "https://api.openai.com/v1", LLM_MODEL: "gpt-4o-mini", OLLAMA_BASE_URL: "", OLLAMA_MODEL: "", LLM_LOCAL: "auto", LLM_SPEED: "equilibrado" },
+  };
+}
+
 function enableDemo() {
   demoMode = true;
   serverError = null;
   state = demoStore.state;
+  cfg = demoConfig();
+  cfgSource = "auto";
+  cfgSpeed = "equilibrado";
   render();
 }
 
@@ -372,6 +419,26 @@ async function refresh() {
   serverError = null;
   state = await res.json();
   render();
+  fetchConfig();
+}
+
+/** Carga la configuración de IA (página ⚙️ + wizard del primer arranque). */
+async function fetchConfig() {
+  if (demoMode) { cfg = demoConfig(); renderWizard(); return; }
+  cfgLoading = true;
+  try {
+    const res = await fetch("/api/config", { headers: { "Content-Type": "application/json" } });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    cfg = await res.json();
+    cfgSource = cfg.source || "auto";
+    cfgSpeed = cfg.llm && cfg.llm.speed || "equilibrado";
+    renderWizard();
+  } catch {
+    cfg = null;
+  } finally {
+    cfgLoading = false;
+    if (tab === "config") render();
+  }
 }
 
 function render() {
@@ -396,11 +463,13 @@ function render() {
   const tabDefs = [
     ...Object.keys(TAB_LABEL).map((t) => ({ id: t, label: TAB_LABEL[t], count: `(${counts[t]})` })),
     { id: "generate", label: "⚡ Generar", count: "" },
+    { id: "config", label: "⚙️ Config", count: "" },
   ];
   document.getElementById("tabs").innerHTML = tabDefs.map((t) =>
     `<button class="tab ${t.id === tab ? "active" : ""}" onclick="setTab('${t.id}')">${t.label} ${t.count ? `<span class="cnt">${t.count}</span>` : ""}</button>`).join("");
 
   if (tab === "generate") { renderGen(); return; }
+  if (tab === "config") { renderConfig(); return; }
 
   // Agrupar posts por ítem de contenido.
   const posts = state.posts.filter((p) => p.status === tab);
@@ -845,6 +914,185 @@ document.addEventListener("input", (e) => {
       if (saveEl) saveEl.textContent = "⚠ error al guardar";
     }
   }, 600);
+});
+
+/* ── Página ⚙️ Config y wizard del primer arranque ── */
+
+const CFG_SOURCES = [
+  { id: "auto", t: "🔍 Detección automática", d: "Ollama / LM Studio en esta máquina (localhost:11434 / :1234). Si no hay, cae al proveedor gratuito anónimo." },
+  { id: "remote", t: "🖥️ Otra máquina con Ollama (Qwen)", d: "Tu servidor con Qwen: basta con OLLAMA_BASE_URL. Si no indicas modelo, elige el mejor él solo." },
+  { id: "cloud", t: "☁️ API en la nube", d: "OpenAI, OpenRouter, Groq, Gemini… con clave (cualquier API estilo OpenAI)." },
+];
+const CFG_SPEEDS = [
+  { id: "ahorro", t: "🐢 Ahorro", d: "Menos RAM/VRAM/calor: contexto corto, mitad de CPUs, modelo descargado a los 5 min y se elige el modelo más pequeño." },
+  { id: "equilibrado", t: "⚖️ Equilibrado", d: "Por defecto: contexto 8192, salida 3072, descarga del modelo a los 30 min." },
+  { id: "rendimiento", t: "⚡ Rendimiento", d: "Máxima velocidad: contexto amplio, modelo siempre cargado y se elige el más grande." },
+];
+
+function cfgVal(key, draftId) {
+  const f = (cfg && cfg.form) || {};
+  return cfgDraft[draftId] !== undefined ? cfgDraft[draftId] : (f[key] || "");
+}
+
+function renderConfig() {
+  const root = document.getElementById("content");
+  if (!cfg) {
+    root.innerHTML = `<div class="empty">Cargando configuración… ${cfgLoading ? "" : `<button onclick="fetchConfig()">↻ Reintentar</button>`}</div>`;
+    return;
+  }
+  root.innerHTML = `
+    <div class="cfg">
+      <div class="cfg-card">
+        <h3>🤖 IA en uso ahora mismo</h3>
+        <div class="cfg-summary">
+          ${cfgSummaryItem("Proveedor", cfg.llm.provider)}
+          ${cfgSummaryItem("Endpoint", cfg.llm.baseUrl)}
+          ${cfgSummaryItem("Modelo", cfg.llm.model)}
+          ${cfgSummaryItem("Clave", cfg.llm.apiKeySet ? "configurada" : "sin clave")}
+          ${cfgSummaryItem("Detección local", cfg.llm.localLlm)}
+          ${cfgSummaryItem("Modo", cfg.llm.speed)}
+        </div>
+      </div>
+      ${configFormHtml()}
+    </div>`;
+}
+
+function cfgSummaryItem(k, v) {
+  return `<div><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`;
+}
+
+function configFormHtml() {
+  return `
+    <div class="cfg-card">
+      <h3>⚙️ ¿De dónde sale la IA?</h3>
+      <div class="cfg-options">
+        ${CFG_SOURCES.map((s) => `
+          <div class="cfg-option ${s.id === cfgSource ? "sel" : ""}" onclick="setCfgSource('${s.id}')">
+            <div class="t">${s.t}</div><div class="d">${s.d}</div>
+          </div>`).join("")}
+      </div>
+      <div class="cfg-fields" style="margin-top:12px">
+        ${cfgSource === "remote" ? `
+          <div class="cfg-field"><label>OLLAMA_BASE_URL — host de la máquina con Qwen (p. ej. http://192.168.1.50:11434)</label>
+            <input id="cfgOllamaUrl" value="${esc(cfgVal("OLLAMA_BASE_URL", "cfgOllamaUrl"))}" placeholder="http://192.168.1.50:11434"></div>
+          <div class="cfg-field"><label>OLLAMA_MODEL (opcional — si lo dejas vacío, elige el mejor modelo disponible)</label>
+            <input id="cfgOllamaModel" value="${esc(cfgVal("OLLAMA_MODEL", "cfgOllamaModel"))}" placeholder="qwen2.5:7b"></div>`
+        : cfgSource === "cloud" ? `
+          <div class="cfg-field"><label>LLM_API_KEY — clave de OpenAI / OpenRouter / Groq / Gemini…</label>
+            <input id="cfgApiKey" type="password" value="${esc(cfgVal("LLM_API_KEY", "cfgApiKey"))}" placeholder="sk-…"></div>
+          <div class="cfg-field"><label>LLM_BASE_URL — endpoint compatible con Chat Completions</label>
+            <input id="cfgBaseUrl" value="${esc(cfgVal("LLM_BASE_URL", "cfgBaseUrl") || "https://api.openai.com/v1")}"></div>
+          <div class="cfg-field"><label>LLM_MODEL</label>
+            <input id="cfgModel" value="${esc(cfgVal("LLM_MODEL", "cfgModel") || "gpt-4o-mini")}"></div>`
+        : `<p class="meta">Detección automática activa: si tienes Ollama o LM Studio arrancados (aquí o vía OLLAMA_BASE_URL), el agente los usa sin más configuración. Si no, cae al proveedor gratuito anónimo.</p>`}
+      </div>
+      <h3 style="margin-top:16px">🐢⚡ Potencia / velocidad (cuida el hardware de tu Qwen)</h3>
+      <div class="cfg-options">
+        ${CFG_SPEEDS.map((s) => `
+          <div class="cfg-option ${s.id === cfgSpeed ? "sel" : ""}" onclick="setCfgSpeed('${s.id}')">
+            <div class="t">${s.t}</div><div class="d">${s.d}</div>
+          </div>`).join("")}
+      </div>
+      <div class="actions" style="margin-top:14px">
+        <button class="primary" onclick="saveCfg(true)">🧪 Probar y guardar</button>
+        <button onclick="saveCfg(false)">💾 Guardar</button>
+        <button onclick="refresh()">↻ Recargar</button>
+      </div>
+      <div class="cfg-result" id="cfgResult"></div>
+    </div>`;
+}
+
+function setCfgSource(id) { cfgSource = id; rerenderConfigForm(); }
+function setCfgSpeed(id) { cfgSpeed = id; rerenderConfigForm(); }
+
+/** Re-renderiza el formulario de config en el sitio visible (wizard o pestaña). */
+function rerenderConfigForm() {
+  const o = document.getElementById("wizardOverlay");
+  if (o && o.style.display !== "none" && o.querySelector("#wizardCard")) {
+    renderWizardForm();
+    return;
+  }
+  renderConfig();
+}
+
+async function saveCfg(test) {
+  const f = (cfg && cfg.form) || {};
+  const vars = {
+    LLM_LOCAL: "auto",
+    LLM_SPEED: cfgSpeed,
+    LLM_API_KEY: "", LLM_BASE_URL: "", LLM_MODEL: "",
+    OLLAMA_BASE_URL: "", OLLAMA_MODEL: "",
+    LLM_FREE_FALLBACK: "", LLM_ENABLED: "",
+  };
+  if (cfgSource === "remote") {
+    vars.LLM_LOCAL = "on";
+    vars.OLLAMA_BASE_URL = cfgVal("OLLAMA_BASE_URL", "cfgOllamaUrl");
+    vars.OLLAMA_MODEL = cfgVal("OLLAMA_MODEL", "cfgOllamaModel");
+  } else if (cfgSource === "cloud") {
+    vars.LLM_API_KEY = cfgVal("LLM_API_KEY", "cfgApiKey");
+    vars.LLM_BASE_URL = cfgVal("LLM_BASE_URL", "cfgBaseUrl") || "https://api.openai.com/v1";
+    vars.LLM_MODEL = cfgVal("LLM_MODEL", "cfgModel") || "gpt-4o-mini";
+  }
+  const box = document.getElementById("cfgResult");
+  if (box) box.innerHTML = `<span class="meta">Guardando…</span>`;
+  try {
+    const data = await api("/api/config", { method: "POST", body: JSON.stringify({ ...vars, test: !!test }) });
+    cfg = data.config;
+    cfgSource = data.config.source;
+    cfgSpeed = data.config.llm.speed;
+    cfgDraft = {};
+    wizardDone = true;
+    hideWizard();
+    if (tab === "config") render();
+    const box2 = document.getElementById("cfgResult");
+    const r = data.test;
+    if (box2) {
+      if (r && r.ok) box2.innerHTML = `<div class="ok">✅ Conexión OK (${r.ms} ms): “${esc(r.answer)}”</div>`;
+      else if (r) box2.innerHTML = `<div class="err">❌ ${esc(r.error || "sin respuesta")} (${r.ms} ms)</div>`;
+      else box2.innerHTML = `<div class="ok">💾 Configuración guardada y aplicada en vivo.</div>`;
+    }
+  } catch (err) {
+    const box3 = document.getElementById("cfgResult");
+    if (box3) box3.innerHTML = `<div class="err">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+/** Wizard de primer arranque: se muestra hasta que se guarda o se omite. */
+function renderWizard() {
+  if (demoMode || wizardDone || !cfg || !cfg.firstInstall) return;
+  renderWizardForm();
+}
+
+function renderWizardForm() {
+  let overlay = document.getElementById("wizardOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "wizardOverlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div id="wizardCard">
+      <h2>👋 ¡Bienvenido a Social Agent!</h2>
+      <p class="sub">Antes de empezar, elige con qué IA va a generar el contenido: detección automática, tu máquina con Qwen, o una API en la nube. Puedes cambiarlo después en la pestaña ⚙️ Config.</p>
+      ${configFormHtml()}
+      <div class="actions" style="margin-top:14px">
+        <button class="primary" onclick="saveCfg(true)">🚀 Probar y guardar</button>
+        <button onclick="saveCfg(false)">💾 Guardar</button>
+        <button onclick="saveCfg(false)">Omitir por ahora</button>
+      </div>
+      <div class="cfg-result" id="cfgResult"></div>
+    </div>`;
+  overlay.style.display = "grid";
+}
+
+function hideWizard() {
+  const o = document.getElementById("wizardOverlay");
+  if (o) o.style.display = "none";
+}
+
+// Mantener los valores escritos en el formulario de config entre re-renders.
+document.addEventListener("input", (e) => {
+  if (e.target.id && e.target.id.startsWith("cfg")) cfgDraft[e.target.id] = e.target.value;
 });
 
 refresh();

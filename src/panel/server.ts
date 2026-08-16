@@ -1,16 +1,18 @@
 import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, existsSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
-import { basename, extname, join, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PLATFORM_PROFILES } from "../agent/marketingAgent.js";
 import { mimeOf } from "../channels/http.js";
-import { CONTENT_EXTENSIONS, type AgentConfig } from "../config.js";
+import { CONTENT_EXTENSIONS, loadConfig, type AgentConfig } from "../config.js";
 import { generateForAll, generateForItem, type GenerationProgress } from "../generator.js";
 import { ingest } from "../ingest.js";
+import { applyLocalLlm, chat } from "../llm.js";
 import { CHANNEL_LIMITS, publishSingle, scheduleDrafts, scheduleSingle } from "../publisher.js";
 import { Store } from "../storage.js";
 import type { ChannelId } from "../types.js";
+import { applyUiConfig, loadUiConfig, saveUiConfig, uiConfigFile, UI_CONFIG_KEYS, type UiConfigVars } from "../uiconfig.js";
 
 /** Límite de subida de media (300 MB: sobra para fotos y la mayoría de vídeos). */
 const MAX_UPLOAD_BYTES = 300 * 1024 * 1024;
@@ -32,15 +34,29 @@ let generation: GenerationState | null = null;
 function panelHtmlPath(config: AgentConfig): string {
   const fromSrc = join(config.root, "src", "panel", "index.html");
   if (existsSync(fromSrc)) return fromSrc;
-  return join(fileURLToPath(new URL(".", import.meta.url)), "index.html");
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  // dist/panel → ../../src/panel (desde el build) · junto al server compilado · src/panel
+  const candidates = [
+    join(moduleDir, "..", "..", "src", "panel", "index.html"),
+    join(moduleDir, "index.html"),
+    join(moduleDir, "..", "panel", "index.html"),
+  ];
+  for (const c of candidates) if (existsSync(c)) return c;
+  return join(moduleDir, "index.html");
+}
+
+/** Runtime del panel: la config puede cambiarse en vivo desde /api/config. */
+interface Runtime {
+  config: AgentConfig;
 }
 
 /** Arranca el panel web. Devuelve el servidor (útil para tests con puerto 0). */
 export function startPanel(config: AgentConfig, port: number): Server {
+  const runtime: Runtime = { config };
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     try {
-      await route(config, req.method ?? "GET", url.pathname, req, res);
+      await route(runtime, req.method ?? "GET", url.pathname, req, res);
     } catch (err) {
       if (res.headersSent) {
         res.end();
@@ -62,12 +78,13 @@ export function startPanel(config: AgentConfig, port: number): Server {
 }
 
 async function route(
-  config: AgentConfig,
+  runtime: Runtime,
   method: string,
   pathname: string,
   req: import("node:http").IncomingMessage,
   res: import("node:http").ServerResponse,
 ): Promise<void> {
+  const config = runtime.config;
   // Panel HTML.
   if (method === "GET" && pathname === "/") {
     const html = readFileSync(panelHtmlPath(config), "utf8");
@@ -95,7 +112,7 @@ async function route(
 
   // API REST.
   if (pathname.startsWith("/api/")) {
-    await handleApi(config, method, pathname, req, res);
+    await handleApi(runtime, method, pathname, req, res);
     return;
   }
 
@@ -103,12 +120,13 @@ async function route(
 }
 
 async function handleApi(
-  config: AgentConfig,
+  runtime: Runtime,
   method: string,
   pathname: string,
   req: import("node:http").IncomingMessage,
   res: import("node:http").ServerResponse,
 ): Promise<void> {
+  const config = runtime.config;
   // El store se carga fresco en cada petición para ver cambios externos.
   const store = new Store(config.dataFile);
   const raw = await readBodyBuffer(req);
@@ -313,6 +331,29 @@ async function handleApi(
     return sendJson(res, 200, { ok: true, file, itemId: item?.id });
   }
 
+  // ── Configuración de la IA (página ⚙️ Config + wizard del primer arranque) ──
+  if (method === "GET" && pathname === "/api/config") {
+    return sendJson(res, 200, configView(config, loadUiConfig(config.root)));
+  }
+
+  if (method === "POST" && pathname === "/api/config") {
+    // Guardar las variables de IA elegidas en el panel (data/ui-config.json),
+    // recargar la config (con detección de IA local) y aplicarla en vivo.
+    const vars: UiConfigVars = {};
+    for (const k of UI_CONFIG_KEYS) {
+      const v = json[k];
+      if (typeof v === "string") vars[k] = v;
+    }
+    saveUiConfig(config.root, vars);
+    applyUiConfig(config.root, true);
+    const fresh = loadConfig(config.root);
+    await applyLocalLlm(fresh, () => {}); // silencioso: el panel ya muestra el resultado
+    runtime.config = fresh;
+    const out = configView(fresh, loadUiConfig(fresh.root));
+    const test = json.test === true ? await testLlmConnection(fresh) : undefined;
+    return sendJson(res, 200, { ok: true, config: out, test });
+  }
+
   if (method === "GET" && pathname === "/api/state") {
     const items = store.contentItems.map((i) => ({ ...i, mediaName: i.filePath?.split(/[\\/]/).pop() }));
     sendJson(res, 200, {
@@ -373,6 +414,64 @@ async function handleApi(
   }
 
   sendJson(res, 404, { error: `Acción no soportada: ${action}` });
+}
+
+/** Vista de la config de IA para el panel (página ⚙️ y wizard de primer arranque). */
+function configView(config: AgentConfig, saved: UiConfigVars): Record<string, unknown> {
+  const llm = config.llm;
+  const env = process.env;
+  const source = saved.LLM_API_KEY ?? env.LLM_API_KEY
+    ? "cloud"
+    : saved.OLLAMA_BASE_URL ?? env.OLLAMA_BASE_URL
+      ? "remote"
+      : "auto";
+  const val = (k: keyof UiConfigVars): string => saved[k] ?? env[k] ?? "";
+  // Primer arranque: no hay config guardada por el panel ni IA elegida a mano.
+  const firstInstall = !existsSync(uiConfigFile(config.root)) && !env.LLM_API_KEY && !env.OLLAMA_BASE_URL;
+  return {
+    llm: {
+      provider: llm.provider,
+      baseUrl: llm.baseUrl,
+      model: llm.model,
+      apiKeySet: Boolean(llm.apiKey),
+      localLlm: llm.localLlm,
+      speed: llm.speed,
+    },
+    source,
+    firstInstall,
+    form: {
+      LLM_API_KEY: val("LLM_API_KEY"),
+      LLM_BASE_URL: val("LLM_BASE_URL") || "https://api.openai.com/v1",
+      LLM_MODEL: val("LLM_MODEL") || "gpt-4o-mini",
+      OLLAMA_BASE_URL: val("OLLAMA_BASE_URL"),
+      OLLAMA_MODEL: val("OLLAMA_MODEL"),
+      LLM_LOCAL: llm.localLlm,
+      LLM_SPEED: llm.speed,
+    },
+  };
+}
+
+/** Prueba rápida de conexión contra la config actual (como llm:check). */
+async function testLlmConnection(config: AgentConfig): Promise<{ ok: boolean; answer?: string; ms: number; error?: string }> {
+  const t0 = Date.now();
+  try {
+    const answer = await chat(
+      {
+        baseUrl: config.llm.baseUrl,
+        apiKey: config.llm.apiKey ?? "",
+        model: config.llm.model,
+        temperature: 0.3,
+        timeoutMs: 30_000,
+        provider: config.llm.provider,
+        speed: config.llm.speed,
+      },
+      [{ role: "user", content: "Responde solo con la palabra: ok" }],
+      1,
+    );
+    return { ok: true, answer: answer.slice(0, 80), ms: Date.now() - t0 };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), ms: Date.now() - t0 };
+  }
 }
 
 /** Localiza yt-dlp: tools/ del proyecto, YTDLP_PATH o el PATH del sistema. */

@@ -2,10 +2,11 @@
 import { watch } from "chokidar";
 import { existsSync } from "node:fs";
 import { loadConfig, type AgentConfig } from "./config.js";
+import { applyUiConfig } from "./uiconfig.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { startPanel } from "./panel/server.js";
 import { generateEditorialPlan, generateWeeklyReport, type EditorialPlanContext, type WeeklyReportContext } from "./agent/marketingAgent.js";
-import { chat } from "./llm.js";
+import { applyLocalLlm, chat, SPEED_SETTINGS } from "./llm.js";
 import { checkChannelCredentials, fetchFollowers, fetchPostEngagement, loadManualMetrics, MetricsStore } from "./metrics.js";
 import { BEST_SLOTS, buildLearnablePosts, learnSchedule, nextSlot, saveLearnedSchedule } from "./scheduler.js";
 import { learnedScheduleFile, loadLearned } from "./publisher.js";
@@ -60,7 +61,11 @@ async function main(): Promise<void> {
   if (args.includes("--dry-run")) process.env.DRY_RUN = "1";
   if (args.includes("--no-dry")) process.env.DRY_RUN = "0";
 
+  // Config de IA guardada desde el panel web (data/ui-config.json), si existe.
+  applyUiConfig(process.cwd());
   const config = loadConfig();
+  // IA local/remota: detecta Ollama/LM Studio (o OLLAMA_BASE_URL con Qwen) sin configurar nada.
+  await applyLocalLlm(config);
   const store = new Store(config.dataFile);
 
   switch (command) {
@@ -85,6 +90,8 @@ async function main(): Promise<void> {
       );
       if (!config.llm.enabled) {
         console.log("ℹ️  LLM desactivado (LLM_ENABLED=0): se usaron plantillas.");
+      } else if (!config.llm.apiKey && config.llm.provider !== "kilo-anon") {
+        console.log(`ℹ️  Generado con IA local (${config.llm.provider}): ${config.llm.model}.`);
       } else if (!config.llm.apiKey) {
         console.log("ℹ️  Generado con IA gratuita anónima (Kilo, sin clave). Para modelos premium pon LLM_API_KEY en .env.");
       }
@@ -266,15 +273,24 @@ async function checkLlm(config: AgentConfig): Promise<void> {
     console.log("    Actívala quitando LLM_ENABLED=0 del .env, o pon LLM_API_KEY.");
     return;
   }
-  if (config.llm.apiKey) {
-    console.log(`  ✓ LLM activo — proveedor configurado: ${config.llm.provider}`);
-    console.log(`      baseUrl: ${config.llm.baseUrl}`);
-    console.log(`      modelo : ${config.llm.model}`);
-  } else {
+  const isAnonKilo = config.llm.provider === "kilo-anon" && !config.llm.apiKey;
+  if (isAnonKilo) {
     console.log("  ✓ LLM activo — gratis sin clave (Kilo Code, anónimo)");
     console.log("      baseUrl: https://api.kilo.ai/api/gateway");
     console.log("      modelo : openrouter/free (auto-routing a modelos :free)");
     console.log("      Nota  : tier anónimo; si está saturado, la generación cae a plantillas.");
+  } else if (config.llm.provider === "ollama" || config.llm.provider === "lmstudio") {
+    console.log(`  ✓ LLM activo — IA ${config.llm.provider} (local/remota)`);
+    console.log(`      baseUrl: ${config.llm.baseUrl}`);
+    console.log(`      modelo : ${config.llm.model}`);
+    console.log("      Detección: LLM_LOCAL=auto; OLLAMA_BASE_URL apunta a una máquina remota (p. ej. con Qwen).");
+    const s = SPEED_SETTINGS[config.llm.speed];
+    console.log(`      modo    : ${config.llm.speed} (contexto ${s.numCtx} tokens, máx salida ${s.maxTokens}, descarga del modelo ${s.keepAlive === -1 ? "nunca" : `tras ${s.keepAlive / 60} min`})`);
+    console.log("      LLM_SPEED=ahorro | equilibrado | rendimiento para cuidar el hardware.");
+  } else {
+    console.log(`  ✓ LLM activo — proveedor configurado: ${config.llm.provider}`);
+    console.log(`      baseUrl: ${config.llm.baseUrl}`);
+    console.log(`      modelo : ${config.llm.model}`);
   }
   process.stdout.write("  Probando conexión… ");
   const t0 = Date.now();
@@ -286,6 +302,8 @@ async function checkLlm(config: AgentConfig): Promise<void> {
         model: config.llm.model,
         temperature: 0.3,
         timeoutMs: 30_000,
+        provider: config.llm.provider,
+        speed: config.llm.speed,
       },
       [{ role: "user", content: "Responde solo con la palabra: ok" }],
       1,
@@ -293,7 +311,9 @@ async function checkLlm(config: AgentConfig): Promise<void> {
     console.log(`✓ respuesta en ${((Date.now() - t0) / 1000).toFixed(1)}s: “${answer.slice(0, 60)}”`);
   } catch (err) {
     console.log(`✖ falló (${err instanceof Error ? err.message : err})`);
-    if (!config.llm.apiKey) {
+    if (!config.llm.apiKey && !isAnonKilo) {
+      console.log("    Comprueba que la IA local está arrancada (ollama serve / LM Studio) y que OLLAMA_BASE_URL apunta bien.");
+    } else if (!config.llm.apiKey) {
       console.log("    El servicio anónimo puede estar saturado; reintenta en un momento.");
       console.log("    Para una IA más estable, añade una key gratis (sin tarjeta) al .env — ver .env.example.");
     }

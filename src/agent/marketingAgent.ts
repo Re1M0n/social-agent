@@ -146,6 +146,8 @@ export async function generateWithLlm(
     apiKey: config.llm.apiKey ?? "",
     model: config.llm.model,
     temperature: 0.8,
+    provider: config.llm.provider,
+    speed: config.llm.speed,
     // Proveedor gratuito anónimo (sin key): 1 intento y timeout amplio — el
     // auto-routing gratuito tarda ~90s en generar el JSON de todos los canales.
     ...(config.llm.apiKey ? {} : { timeoutMs: 180_000 }),
@@ -327,6 +329,8 @@ export async function generateWeeklyReport(
         apiKey: config.llm.apiKey ?? "",
         model: config.llm.model,
         temperature: 0.6,
+        provider: config.llm.provider,
+        speed: config.llm.speed,
       };
       const raw = await chat(opts, [
         { role: "system", content: REPORT_SYSTEM_PROMPT },
@@ -445,6 +449,8 @@ export async function generateEditorialPlan(
         apiKey: config.llm.apiKey ?? "",
         model: config.llm.model,
         temperature: 0.7,
+        provider: config.llm.provider,
+        speed: config.llm.speed,
       };
       const raw = await chat(opts, [
         { role: "system", content: PLAN_SYSTEM_PROMPT },

@@ -68,15 +68,25 @@ Con tus 132 GB libres, **cualquiera cabe**. El cuello de botella es RAM/CPU:
 sin GPU, un 8B genera 1 post en ~10-30 s. Para este agente (unos pocos posts al
 día) es perfectamente viable y **100 % privado y gratis**.
 
-Configuración en `.env`:
+Configuración en `.env` (opcional — el agente detecta Ollama solo):
 
 ```bash
+# Opción A: automática. Con Ollama arrancado, el agente lo detecta en
+# localhost:11434 y elige el mejor modelo (Qwen, Llama, Gemma…) sin tocar nada:
+LLM_LOCAL=auto
+
+# Opción B: manual (la de siempre).
 LLM_API_KEY=ollama                  # cualquier valor: Ollama no la valida
 LLM_BASE_URL=http://localhost:11434/v1
 LLM_MODEL=llama3.1:8b
+
+# Opción C: Ollama en OTRA máquina (p. ej. un servidor con Qwen):
+# OLLAMA_BASE_URL=http://192.168.1.50:11434
+# OLLAMA_MODEL=qwen2.5:14b          # opcional: si no, elige el mejor
 ```
 
-Instalar un modelo: `ollama pull llama3.1:8b` (o `gemma3:4b` para menos RAM).
+Instalar un modelo: `ollama pull llama3.1:8b` (o `gemma3:4b` para menos RAM,
+`qwen2.5:14b` para el plan potente).
 
 ---
 

@@ -26,6 +26,14 @@ export function loadEnvFile(root = process.cwd()): void {
   }
 }
 
+export type LocalLlmMode = "auto" | "on" | "off";
+
+/** Selector de potencia/velocidad para la IA local (LLM_SPEED).
+ *  - ahorro: menos RAM/VRAM/CPU (contexto corto, modelo pequeño, descarga rápida).
+ *  - equilibrado: compromiso por defecto.
+ *  - rendimiento: máxima velocidad (contexto amplio, modelo grande, siempre cargado). */
+export type LlmSpeed = "ahorro" | "equilibrado" | "rendimiento";
+
 export interface AgentConfig {
   root: string;
   contentDir: string;
@@ -45,6 +53,10 @@ export interface AgentConfig {
     model: string;
     /** Fallback a plantillas si no hay API key. */
     enabled: boolean;
+    /** Detección de IA local/remota (LLM_LOCAL): "auto" | "on" | "off". */
+    localLlm: LocalLlmMode;
+    /** Selector de potencia/velocidad (LLM_SPEED): ahorro | equilibrado | rendimiento. */
+    speed: LlmSpeed;
   };
   channels: Record<ChannelId, ChannelConfig>;
 }
@@ -91,6 +103,24 @@ export function loadConfig(root = process.cwd()): AgentConfig {
   const enabled = !explicitDisable && (Boolean(apiKey) || freeFallback);
   const isFreeAnonymous = enabled && !apiKey;
 
+  // Modo de detección de IA local/remota (LLM_LOCAL): auto (default), on, off.
+  const localRaw = (process.env.LLM_LOCAL ?? "auto").toLowerCase();
+  const localLlm: LocalLlmMode =
+    localRaw === "0" || localRaw === "off" || localRaw === "false"
+      ? "off"
+      : localRaw === "1" || localRaw === "on" || localRaw === "true" || localRaw === "force"
+        ? "on"
+        : "auto";
+
+  // Selector de potencia/velocidad (LLM_SPEED): ahorro | equilibrado | rendimiento.
+  const speedRaw = (process.env.LLM_SPEED ?? "equilibrado").toLowerCase();
+  const speed: LlmSpeed =
+    speedRaw === "ahorro" || speedRaw === "eco"
+      ? "ahorro"
+      : speedRaw === "rendimiento" || speedRaw === "turbo" || speedRaw === "fast"
+        ? "rendimiento"
+        : "equilibrado";
+
   return {
     root,
     contentDir: resolve(root, process.env.CONTENT_DIR ?? "content"),
@@ -110,6 +140,8 @@ export function loadConfig(root = process.cwd()): AgentConfig {
       apiKey,
       model: isFreeAnonymous ? "openrouter/free" : (process.env.LLM_MODEL ?? "gpt-4o-mini"),
       enabled,
+      localLlm,
+      speed,
     },
     channels,
   };

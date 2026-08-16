@@ -30,6 +30,9 @@ export function testConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
       apiKey: undefined,
       model: "gpt-4o-mini",
       enabled: false,
+      // Tests herméticos: nunca sondear la red en busca de IA local.
+      localLlm: "off",
+      speed: "equilibrado",
     },
     channels,
     ...overrides,

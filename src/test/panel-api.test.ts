@@ -9,12 +9,17 @@ import { enableChannel, testConfig } from "./helpers.js";
 import { Store } from "../storage.js";
 import type { ContentItem, Draft } from "../types.js";
 
+const UI_ENV_KEYS = ["LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "LLM_LOCAL", "LLM_SPEED", "OLLAMA_BASE_URL", "OLLAMA_MODEL", "LLM_FREE_FALLBACK", "LLM_ENABLED"];
+
 describe("Panel web: API de revisión y aprobación", () => {
   let server: Server;
   let base = "";
   let dataFile = "";
   let mediaDir = "";
   let ideasDir = "";
+  let dir = "";
+  const savedEnv: Record<string, string | undefined> = {};
+  for (const k of UI_ENV_KEYS) savedEnv[k] = process.env[k];
   const drafts: Draft[] = [
     {
       id: "post-a-mastodon",
@@ -35,7 +40,7 @@ describe("Panel web: API de revisión y aprobación", () => {
   ];
 
   before(async () => {
-    const dir = mkdtempSync(join(tmpdir(), "social-agent-panel-"));
+    dir = mkdtempSync(join(tmpdir(), "social-agent-panel-"));
     dataFile = join(dir, "agent.json");
     mediaDir = join(dir, "media");
     ideasDir = join(dir, "ideas");
@@ -52,7 +57,8 @@ describe("Panel web: API de revisión y aprobación", () => {
     store.addDrafts(drafts);
 
     // Hermético: config de test que no lee el .env local (CI no lo tiene).
-    const config = testConfig({ dataFile, mediaDir, ideasDir });
+    // root=dir → la config del panel (data/ui-config.json) se guarda en el tmpdir.
+    const config = testConfig({ root: dir, dataFile, mediaDir, ideasDir });
     enableChannel(config, "mastodon");
     server = startPanel(config, 0);
     await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -63,7 +69,12 @@ describe("Panel web: API de revisión y aprobación", () => {
   after(() => {
     server.closeAllConnections();
     server.close();
-    rmSync(join(tmpdir(), "social-agent-panel-"), { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+    // Restaurar process.env (POST /api/config lo modifica en vivo).
+    for (const k of UI_ENV_KEYS) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
   });
 
   it("GET / sirve el panel HTML", async () => {
@@ -345,5 +356,67 @@ describe("Panel web: API de revisión y aprobación", () => {
       });
       assert.equal(res.status, expected, `body ${JSON.stringify(body)}`);
     }
+  });
+
+  it("GET /api/config devuelve el estado de la IA y el formulario", async () => {
+    const res = await fetch(`${base}/api/config`);
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.ok(data.llm && data.llm.provider && data.llm.model, "información de la IA presente");
+    assert.ok(data.form && typeof data.form.LLM_MODEL === "string", "formulario con valores");
+    assert.equal(typeof data.firstInstall, "boolean");
+  });
+
+  it("POST /api/config guarda en data/ui-config.json, recarga la config y la aplica en vivo", async () => {
+    const res = await fetch(`${base}/api/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        LLM_API_KEY: "sk-test",
+        LLM_BASE_URL: "https://ejemplo.test/v1",
+        LLM_MODEL: "modelo-test",
+        LLM_LOCAL: "off",
+        LLM_SPEED: "ahorro",
+        OLLAMA_BASE_URL: "",
+        OLLAMA_MODEL: "",
+        LLM_FREE_FALLBACK: "",
+        LLM_ENABLED: "",
+      }),
+    });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(data.config.firstInstall, false, "ya no es primer arranque");
+    assert.equal(data.config.llm.speed, "ahorro");
+    assert.equal(data.config.form.LLM_MODEL, "modelo-test");
+    const saved = JSON.parse(readFileSync(join(dir, "data", "ui-config.json"), "utf8"));
+    assert.equal(saved.LLM_MODEL, "modelo-test");
+    // Persistido y activo en el siguiente GET.
+    const again = await (await fetch(`${base}/api/config`)).json();
+    assert.equal(again.firstInstall, false);
+    assert.equal(again.llm.model, "modelo-test");
+  });
+
+  it("POST /api/config con OLLAMA_BASE_URL guarda la fuente remota", async () => {
+    const res = await fetch(`${base}/api/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        LLM_API_KEY: "",
+        LLM_BASE_URL: "",
+        LLM_MODEL: "",
+        // off: este test no sondea la red, solo verifica persistencia/fuente.
+        LLM_LOCAL: "off",
+        LLM_SPEED: "equilibrado",
+        OLLAMA_BASE_URL: "http://192.168.1.50:11434",
+        OLLAMA_MODEL: "qwen2.5:7b",
+        LLM_FREE_FALLBACK: "",
+        LLM_ENABLED: "",
+      }),
+    });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(data.config.source, "remote");
+    assert.equal(data.config.form.OLLAMA_BASE_URL, "http://192.168.1.50:11434");
   });
 });
