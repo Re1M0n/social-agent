@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0a0c10">
 <meta name="description" content="Social Agent: agente de contenido para redes sociales. Ingiere ideas y medios, genera drafts por plataforma con tu LLM local o en la nube, y publica en el mejor momento.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230a0c10'/%3E%3Cpath d='M12 3l1.9 5.2L19 10l-5.1 1.8L12 17l-1.9-5.2L5 10l5.1-1.8z' fill='%236cb4ff'/%3E%3Ccircle cx='18.5' cy='5' r='1.2' fill='%23409cff'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="assets/favicon.png" sizes="128x128">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Social Agent">
 <meta property="og:locale" content="es_ES">
@@ -88,6 +88,8 @@
   }
   .nav-links a:hover { color: var(--text); background: var(--surface-2); }
   .nav-cta { margin-left: auto; }
+  /* Móvil: marca + CTA en una sola fila; los enlaces pasan a las secciones */
+  @media (max-width: 640px) { .nav-links { display: none; } }
 
   /* ── Botones ───────────────────────────────────────────────────────── */
   .btn {
@@ -115,8 +117,7 @@
   @media (prefers-reduced-motion: no-preference) { .eyebrow .dot { animation: pulse 2.4s ease-in-out infinite; } }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
   .hero h1 {
-    font-size: clamp(40px, 6vw, 62px); line-height: 1.02; letter-spacing: -.032em; font-weight: 700;
-    max-width: 12ch;
+    font-size: clamp(40px, 6vw, 62px); line-height: 1.08; letter-spacing: -.032em; font-weight: 700;
   }
   .hero h1 .accent { color: var(--accent-strong); }
   .hero-sub { margin-top: 22px; font-size: 17px; color: var(--text-2); max-width: 46ch; line-height: 1.6; }
@@ -159,7 +160,7 @@
   @keyframes mq { to { transform: translateX(-50%); } }
 
   /* ── Secciones ─────────────────────────────────────────────────────── */
-  .sec { padding: 88px 0; }
+  .sec { padding-top: 88px; padding-bottom: 88px; }
   .sec-head { max-width: 640px; margin-bottom: 48px; }
   .sec-head h2 { font-size: clamp(28px, 4vw, 38px); letter-spacing: -.025em; line-height: 1.1; font-weight: 700; }
   .sec-head p { margin-top: 14px; color: var(--text-2); font-size: 15.5px; }
@@ -217,7 +218,7 @@
   .mini-list .ic { color: var(--ok); }
 
   /* ── Sección demo ──────────────────────────────────────────────────── */
-  .demo-sec { text-align: center; padding: 96px 0 40px; }
+  .demo-sec { text-align: center; padding-top: 96px; padding-bottom: 40px; }
   .demo-sec h2 { font-size: clamp(30px, 4.5vw, 44px); letter-spacing: -.028em; line-height: 1.05; font-weight: 700; }
   .demo-sec p { margin: 18px auto 0; color: var(--text-2); max-width: 52ch; font-size: 16px; }
   .demo-sec .btn { margin-top: 30px; }

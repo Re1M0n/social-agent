@@ -27,13 +27,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Preparar el sitio (landing en la raíz + panel en modo demo en /panel/ + imagen OG)
+      - name: Preparar el sitio (landing en la raíz + panel en modo demo en /panel/ + imagen OG + favicon)
         run: |
-          mkdir -p _site/panel
+          mkdir -p _site/panel _site/assets
           cp landing/index.html _site/index.html
           cp src/panel/index.html _site/panel/index.html
           cp assets/og-image.png _site/og-image.png
           cp assets/og-image.svg _site/og-image.svg
+          cp assets/favicon.png _site/assets/favicon.png
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
