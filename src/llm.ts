@@ -20,6 +20,8 @@ export interface LlmOptions {
   temperature?: number;
   /** Aborta la petición tras este tiempo (ms). Útil para proveedores anónimos lentos. */
   timeoutMs?: number;
+  /** Señal externa (p. ej. cliente desconectado del panel): aborta la petición. */
+  signal?: AbortSignal;
   /** Proveedor en uso ("ollama" usa la API nativa para poder cuidar el hardware). */
   provider?: string;
   /** Selector de potencia/velocidad (LLM_SPEED). */
@@ -138,7 +140,22 @@ export async function chat(
   throw lastErr;
 }
 
-async function chatOnce(opts: LlmOptions, messages: ChatMessage[]): Promise<string> {
+/** Igual que chat() pero entrega cada fragmento de texto en vivo vía onDelta.
+ *  Sin reintentos: los tokens ya emitidos no se pueden deshacer. Lo usan el
+ *  chat del panel (SSE) y quien quiera mostrar la respuesta mientras se genera. */
+export async function chatStream(
+  opts: LlmOptions,
+  messages: ChatMessage[],
+  onDelta: (delta: string) => void,
+): Promise<string> {
+  return chatOnce(opts, messages, onDelta);
+}
+
+async function chatOnce(
+  opts: LlmOptions,
+  messages: ChatMessage[],
+  onDelta?: (delta: string) => void,
+): Promise<string> {
   // Ollama: API nativa /api/chat → control real del hardware (num_ctx,
   // num_threads, keep_alive). El resto: OpenAI Chat Completions.
   const native = opts.provider === "ollama";
@@ -152,6 +169,9 @@ async function chatOnce(opts: LlmOptions, messages: ChatMessage[]): Promise<stri
         controller!.abort(err);
       }, opts.timeoutMs)
     : undefined;
+  // Combina el timeout interno con una señal externa (cliente desconectado).
+  const signals = [controller?.signal, opts.signal].filter((s): s is AbortSignal => Boolean(s));
+  const signal = signals.length > 0 ? AbortSignal.any(signals) : undefined;
   try {
     // Streaming SSE: necesario para LLM locales lentos (Ollama bufferiza la
     // respuesta completa con stream:false y supera el headersTimeout de 5 min).
@@ -161,7 +181,7 @@ async function chatOnce(opts: LlmOptions, messages: ChatMessage[]): Promise<stri
         "Content-Type": "application/json",
         ...(native ? {} : { Authorization: `Bearer ${opts.apiKey}` }),
       },
-      signal: controller?.signal,
+      signal,
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -170,7 +190,7 @@ async function chatOnce(opts: LlmOptions, messages: ChatMessage[]): Promise<stri
       err.status = res.status;
       throw err;
     }
-    return await streamContent(res, native ? ollamaExtract : openaiExtract);
+    return await streamContent(res, native ? ollamaExtract : openaiExtract, onDelta);
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -242,8 +262,13 @@ function ollamaExtract(chunk: { message?: { content?: string } }): string | unde
 
 type ChunkExtractor = (chunk: Record<string, unknown>) => string | undefined;
 
-/** Consume una respuesta SSE y devuelve el texto completo (con fallback a JSON plano). */
-async function streamContent(res: Response, extract: ChunkExtractor): Promise<string> {
+/** Consume una respuesta SSE y devuelve el texto completo (con fallback a JSON plano).
+ *  Si se pasa onDelta, entrega cada fragmento de texto en cuanto llega. */
+async function streamContent(
+  res: Response,
+  extract: ChunkExtractor,
+  onDelta?: (delta: string) => void,
+): Promise<string> {
   if (!res.body) throw new Error("LLM sin cuerpo de respuesta");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -270,7 +295,10 @@ async function streamContent(res: Response, extract: ChunkExtractor): Promise<st
       try {
         const chunk = JSON.parse(payload) as Record<string, unknown>;
         const delta = extract(chunk);
-        if (delta) content += delta;
+        if (delta) {
+          content += delta;
+          onDelta?.(delta);
+        }
       } catch {
         /* línea SSE/NDJSON malformada: ignorar */
       }
@@ -281,6 +309,7 @@ async function streamContent(res: Response, extract: ChunkExtractor): Promise<st
     try {
       const full = JSON.parse(allText.trim()) as Record<string, unknown>;
       content = extract(full) ?? "";
+      if (content) onDelta?.(content);
     } catch {
       /* no era JSON */
     }

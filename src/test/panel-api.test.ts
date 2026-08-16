@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import { after, before, describe, it } from "node:test";
 import { startPanel } from "../panel/server.js";
 import { enableChannel, testConfig } from "./helpers.js";
@@ -18,6 +18,9 @@ describe("Panel web: API de revisión y aprobación", () => {
   let mediaDir = "";
   let ideasDir = "";
   let dir = "";
+  // Mock del LLM (API OpenAI): responde a /chat/completions con SSE.
+  let mockLlm: Server;
+  let mockLlmPort = 0;
   const savedEnv: Record<string, string | undefined> = {};
   for (const k of UI_ENV_KEYS) savedEnv[k] = process.env[k];
   const drafts: Draft[] = [
@@ -56,9 +59,52 @@ describe("Panel web: API de revisión y aprobación", () => {
     store.addContentItem(item);
     store.addDrafts(drafts);
 
+    // Mock del LLM: sirve respuestas OpenAI en SSE para probar el chat sin red.
+    // Si el último mensaje del usuario pide una orden, responde con el JSON de
+    // acción que el agente emitiría (el panel debe ejecutarla de verdad).
+    mockLlm = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        let reply = "Hola desde el agente de prueba.";
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+            messages?: { role: string; content: string }[];
+          };
+          const lastUser = [...(body.messages ?? [])].reverse().find((m) => m.role === "user")?.content ?? "";
+          if (/programa/i.test(lastUser)) reply = 'Voy a programar los pendientes.\n{"accion":"programar"}';
+          else if (/genera/i.test(lastUser)) reply = 'Genero drafts ahora.\n{"accion":"generar"}';
+          else if (/modo/i.test(lastUser)) reply = 'Cambio el modo de publicación.\n{"accion":"publicacion","dryRun":false}';
+        } catch {
+          /* cuerpo no-JSON: respuesta por defecto */
+        }
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\ndata: [DONE]\n\n`);
+      });
+    });
+    mockLlm.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => mockLlm.once("listening", resolve));
+    const llmAddr = mockLlm.address();
+    mockLlmPort = typeof llmAddr === "object" && llmAddr ? llmAddr.port : 0;
+
     // Hermético: config de test que no lee el .env local (CI no lo tiene).
     // root=dir → la config del panel (data/ui-config.json) se guarda en el tmpdir.
-    const config = testConfig({ root: dir, dataFile, mediaDir, ideasDir });
+    const config = testConfig({
+      root: dir,
+      dataFile,
+      mediaDir,
+      ideasDir,
+      llm: {
+        provider: "openai",
+        baseUrl: `http://127.0.0.1:${mockLlmPort}/v1`,
+        apiKey: "sk-mock",
+        model: "mock-model",
+        enabled: true,
+        localLlm: "off",
+        speed: "equilibrado",
+        channels: {},
+      },
+    });
     enableChannel(config, "mastodon");
     server = startPanel(config, 0);
     await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -69,6 +115,8 @@ describe("Panel web: API de revisión y aprobación", () => {
   after(() => {
     server.closeAllConnections();
     server.close();
+    mockLlm.closeAllConnections();
+    mockLlm.close();
     rmSync(dir, { recursive: true, force: true });
     // Restaurar process.env (POST /api/config lo modifica en vivo).
     for (const k of UI_ENV_KEYS) {
@@ -225,6 +273,154 @@ describe("Panel web: API de revisión y aprobación", () => {
     });
     assert.ok([202, 409].includes(second.status), `segundo POST: ${second.status}`);
     await waitGenerationDone(base);
+  });
+
+  it("GET /api/chat devuelve historial, conectores y la IA en uso", async () => {
+    const res = await fetch(`${base}/api/chat`);
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.ok(Array.isArray(data.messages), "historial como array");
+    assert.ok(Array.isArray(data.connectors), "conectores como array");
+    assert.equal(data.llm.model, "mock-model");
+  });
+
+  it("POST /api/chat conversa con la IA configurada y persiste el historial", async () => {
+    const res = await fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Propón un gancho para Mastodon sobre lanzamientos." }),
+    });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(data.ok, true);
+    const msgs = data.messages;
+    assert.equal(msgs.length, 2, "usuario + asistente");
+    assert.equal(msgs[0].role, "user");
+    assert.equal(msgs[0].content, "Propón un gancho para Mastodon sobre lanzamientos.");
+    assert.equal(msgs[1].role, "assistant");
+    assert.match(msgs[1].content, /agente de prueba/);
+    // El contexto del proyecto llega al LLM (el mock no lo valida, pero la
+    // respuesta se guarda) y el historial queda en disco.
+    const saved = JSON.parse(readFileSync(join(dir, "data", "chat.json"), "utf8"));
+    assert.equal(saved.messages.length, 2);
+    assert.equal(saved.messages[1].content, "Hola desde el agente de prueba.");
+  });
+
+  it("POST /api/chat rechaza mensajes vacíos sin tocar el historial", async () => {
+    const res = await fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "   " }),
+    });
+    assert.equal(res.status, 400);
+    const data = await (await fetch(`${base}/api/chat`)).json();
+    assert.equal(data.messages.length, 2, "el historial sigue intacto");
+  });
+
+  it("POST /api/chat/clear vacía el historial", async () => {
+    const res = await fetch(`${base}/api/chat/clear`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).ok, true);
+    const data = await (await fetch(`${base}/api/chat`)).json();
+    assert.equal(data.messages.length, 0);
+  });
+
+  it("POST /api/chat/stream emite el texto por SSE y persiste el historial", async () => {
+    const res = await fetch(`${base}/api/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Hola" }),
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") || "", /text\/event-stream/);
+    const text = await res.text();
+    const events = [...text.matchAll(/data: (\{[^\n]*\})/g)].map((m) => JSON.parse(m[1]));
+    const streamed = events.filter((e) => typeof e.delta === "string").map((e) => e.delta).join("");
+    assert.equal(streamed, "Hola desde el agente de prueba.", "el texto llega por deltas");
+    const done = events.find((e) => e.done === true);
+    assert.ok(done, "evento final con historial");
+    assert.equal(done.messages.length, 2, "usuario + asistente");
+    assert.equal(done.messages[1].content, "Hola desde el agente de prueba.");
+    assert.equal(done.executed, null, "mensaje informativo: sin orden ejecutada");
+    // Persistido en disco igual que POST /api/chat.
+    const saved = JSON.parse(readFileSync(join(dir, "data", "chat.json"), "utf8"));
+    assert.equal(saved.messages.length, 2);
+  });
+
+  it("POST /api/chat ejecuta la orden de programar pendientes", async () => {
+    const store = new Store(dataFile);
+    store.addDrafts([
+      {
+        id: "chat-programar-draft",
+        contentItemId: "item-a",
+        channel: "mastodon",
+        text: "Pendiente que el chat debe programar.",
+        tags: [],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const res = await fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "programa todos los pendientes" }),
+    });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(data.executed.action, "programar");
+    assert.equal(data.executed.ok, true);
+    assert.match(data.executed.detail, /\d+ draft\(s\) programados/);
+    const state = await (await fetch(`${base}/api/state`)).json();
+    const post = state.posts.find((p: { id: string }) => p.id === "chat-programar-draft");
+    assert.equal(post.status, "scheduled", "el pendiente quedó programado");
+    assert.ok(post.scheduledFor, "con horario óptimo");
+    // La orden ejecutada queda anotada en el historial.
+    const saved = JSON.parse(readFileSync(join(dir, "data", "chat.json"), "utf8"));
+    const last = saved.messages[saved.messages.length - 1];
+    assert.equal(last.executed.action, "programar");
+  });
+
+  it("POST /api/chat ejecuta la orden de generar drafts", async () => {
+    const store = new Store(dataFile);
+    store.addContentItem({
+      id: "chat-generar-item",
+      kind: "idea",
+      title: "Idea generada desde el chat",
+      body: "Contenido.",
+      mediaType: "text",
+      ingestedAt: new Date().toISOString(),
+    });
+    const res = await fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "genera drafts para todo el contenido" }),
+    });
+    const data = await res.json();
+    assert.equal(data.executed.action, "generar");
+    assert.equal(data.executed.ok, true);
+    await waitGenerationDone(base);
+    const state = await (await fetch(`${base}/api/state`)).json();
+    assert.ok(
+      state.posts.some((p: { contentItemId: string; channel: string }) => p.contentItemId === "chat-generar-item" && p.channel === "mastodon"),
+      "la generación creó drafts para el ítem nuevo",
+    );
+  });
+
+  it("POST /api/chat ejecuta la orden de cambiar el modo de publicación", async () => {
+    const res = await fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "cambia el modo de publicación a en vivo" }),
+    });
+    const data = await res.json();
+    assert.equal(data.executed.action, "publicacion");
+    assert.equal(data.executed.ok, true);
+    assert.match(data.executed.detail, /en vivo/);
+    const state = await (await fetch(`${base}/api/state`)).json();
+    assert.equal(state.dryRun, false, "sale de simulación");
   });
 
   it("POST /api/media guarda el archivo, lo ingiere y aparece en /api/state", async () => {

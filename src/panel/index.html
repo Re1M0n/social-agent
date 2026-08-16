@@ -424,6 +424,66 @@
   #wizardCard h2 .ic { color: var(--accent-strong); }
   #wizardCard .sub { color: var(--text-2); font-size: 13px; margin-bottom: 18px; max-width: 62ch; }
 
+  /* ── Chat con el agente ─────────────────────────────────────────────── */
+  .chat-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card); padding: 22px; max-width: 900px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  @media (prefers-reduced-motion: no-preference) { .chat-card { animation: rise .4s cubic-bezier(.16, 1, .3, 1); } }
+  .chat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+  .chat-head h3 { display: flex; align-items: center; gap: 9px; font-size: 15.5px; font-weight: 650; letter-spacing: -.012em; margin-bottom: 4px; }
+  .chat-head h3 .ic { color: var(--accent-strong); }
+  .chat-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .chat-head select {
+    background: var(--field); color: var(--text); border: 1px solid var(--border-strong);
+    border-radius: var(--radius-ctl); padding: 7px 10px; font: inherit; font-size: 12.5px; max-width: 320px;
+  }
+  .chat-msgs {
+    display: flex; flex-direction: column; gap: 12px; max-height: 52vh; min-height: 200px;
+    overflow-y: auto; padding: 4px 2px 4px 0;
+  }
+  .msg { display: flex; flex-direction: column; gap: 4px; max-width: 84%; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.assistant { align-self: flex-start; align-items: flex-start; }
+  .msg-bubble {
+    padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.55;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .msg.user .msg-bubble { background: var(--accent); color: #081322; border-bottom-right-radius: 4px; font-weight: 520; }
+  .msg.assistant .msg-bubble { background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .msg.streaming .msg-bubble { border-color: var(--accent-border); }
+  .stream-hint { color: var(--text-3); display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 12px; }
+  @media (prefers-reduced-motion: no-preference) { .stream-hint .ic { animation: pulse 1.2s ease-in-out infinite; } }
+  .chat-exec {
+    display: inline-flex; align-items: flex-start; gap: 6px; font-size: 12px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 7px 11px; max-width: 100%;
+  }
+  .chat-exec.ok { color: var(--ok); border-color: rgba(52, 211, 153, .35); background: var(--ok-soft); }
+  .chat-exec.err { color: var(--err); border-color: rgba(248, 113, 113, .35); background: var(--err-soft); }
+  .chat-exec .ic { flex: none; margin-top: 2px; }
+  .chat-time { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+  .chat-empty { text-align: center; padding: 26px 18px; border: 1px dashed var(--border-strong); border-radius: 12px; }
+  .chat-empty .empty-title { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text); font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .chat-empty .empty-title .ic { color: var(--accent-strong); }
+  .chat-chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 14px; }
+  .chip-btn {
+    border: 1px solid var(--accent-border); background: var(--accent-soft); color: var(--accent-strong);
+    border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 550; cursor: pointer;
+    transition: background .18s, transform .18s cubic-bezier(.16, 1, .3, 1);
+  }
+  .chip-btn:hover { background: rgba(64, 156, 255, .22); }
+  .chip-btn:active { transform: translateY(1px) scale(.985); }
+  .chat-input { display: flex; gap: 10px; align-items: flex-end; }
+  .chat-input textarea {
+    flex: 1; resize: vertical; min-height: 46px; max-height: 160px;
+    background: var(--field); color: var(--text); border: 1px solid var(--border-strong);
+    border-radius: var(--radius-ctl); padding: 10px 12px; font: inherit; font-size: 13.5px;
+  }
+  .chat-input textarea:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .chat-input .btn { flex: none; }
+
   /* ── Accesibilidad ─────────────────────────────────────────────────── */
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
   @media (prefers-reduced-motion: reduce) {
@@ -560,6 +620,13 @@ let cfgChannelLlm = {}; // IA por canal: id del conector asignado ("" = IA globa
 let cfgConnectors = null; // conectores de IA definidos en el panel (globales)
 let cfgPublication = { dryRun: true, autoPublish: false }; // modo de publicación
 let wizardDone = false;
+// Chat con el agente: historial, IA elegida y estado de envío.
+let chat = null; // { messages, connectors, llm }
+let chatSending = false;
+let chatConnector = ""; // id del conector elegido ("" = IA global)
+let chatLoaded = false;
+let chatLoadError = "";
+let chatScrollToBottom = false;
 
 // ── Modo demo (GitHub Pages: sin backend; datos y acciones simuladas) ──
 let demoMode = false;
@@ -604,6 +671,54 @@ const demoStore = {
     posts: DEMO_POSTS,
   },
 };
+const demoChat = { messages: [] };
+
+/** Genera drafts de ejemplo para todos los ítems (usado por la demo y el chat). */
+function demoGenerateAll() {
+  const id = "demo-gen-" + Date.now();
+  demoStore.state.items.push({ id, kind: "idea", title: "Demo: idea generada con IA", body: "Idea de ejemplo simulada.", mediaType: "text", ingestedAt: new Date().toISOString() });
+  const demoPosts = [
+    ["mastodon", "(Demo) ¿Cuántas horas pierdes a la semana organizándote? Esta app las convierte en minutos. #productividad"],
+    ["bluesky", "(Demo) Hemos lanzado algo que te quita horas: organización en minutos. #productividad"],
+    ["twitter", "(Demo) Lanzamos la app que convierte horas en minutos. #productividad"],
+  ];
+  for (const [c, text] of demoPosts) {
+    demoStore.state.posts.push({ id: `${id}-${c}`, contentItemId: id, channel: c, status: "draft", text, tags: ["productividad"], createdAt: new Date().toISOString() });
+  }
+  return { generated: 3, itemsProcessed: 1, ms: 0 };
+}
+
+/** Respuesta simulada del agente en demo: detecta órdenes y las ejecuta en la demo. */
+function demoChatReply(msg) {
+  const s = demoStore.state;
+  const drafts = s.posts.filter((p) => p.status === "draft").length;
+  const scheduled = s.posts.filter((p) => p.status === "scheduled").length;
+  const published = s.posts.filter((p) => p.status === "published").length;
+  let executed = null;
+  if (/genera/i.test(msg)) {
+    const r = demoGenerateAll();
+    executed = { action: "generar", ok: true, label: "Generar drafts con IA", detail: `${r.generated} draft(s) de ejemplo generados (demo).` };
+  } else if (/programa/i.test(msg)) {
+    let n = 0;
+    for (const p of s.posts) {
+      if (p.status === "draft") { p.status = "scheduled"; p.scheduledFor = new Date(Date.now() + 3600000).toISOString(); n++; }
+    }
+    executed = { action: "programar", ok: true, label: "Programar pendientes", detail: n > 0 ? `${n} draft(s) programados (demo).` : "no había pendientes (demo)." };
+  } else if (/modo/i.test(msg)) {
+    const live = /en vivo|de verdad/i.test(msg);
+    const auto = /aut[oó]nomo/i.test(msg);
+    if (live || /simulaci[oó]n/i.test(msg)) s.dryRun = !live;
+    if (auto || /manual|borrador/i.test(msg)) s.autoPublish = auto;
+    executed = { action: "publicacion", ok: true, label: "Cambiar modo de publicación", detail: `${s.dryRun ? "simulación" : "en vivo"} + ${s.autoPublish ? "autónomo" : "manual"} (demo).` };
+  }
+  const head = msg.slice(0, 120);
+  const reply = `(Demo) He leído tu mensaje: "${head}"${msg.length > 120 ? "…" : ""}.
+
+Estado actual en demo: ${s.items.length} ítem(s), ${drafts} borrador(es), ${scheduled} programado(s), ${published} publicado(s).
+
+En el modo demo no hay IA real conectada: la respuesta y la orden se simulan. Ejecuta npm run panel y guarda tu IA en Config para conversar de verdad.`;
+  return { reply, executed };
+}
 
 async function demoApi(url, opts = {}) {
   const method = (opts.method || "GET").toUpperCase();
@@ -646,17 +761,7 @@ async function demoApi(url, opts = {}) {
       }
       return { ok: true, generated: missing.length, ms: 0 };
     }
-    const id = "demo-gen-" + Date.now();
-    demoStore.state.items.push({ id, kind: "idea", title: "Demo: idea generada con IA", body: "Idea de ejemplo simulada.", mediaType: "text", ingestedAt: new Date().toISOString() });
-    const demoPosts = [
-      ["mastodon", "(Demo) ¿Cuántas horas pierdes a la semana organizándote? Esta app las convierte en minutos. #productividad"],
-      ["bluesky", "(Demo) Hemos lanzado algo que te quita horas: organización en minutos. #productividad"],
-      ["twitter", "(Demo) Lanzamos la app que convierte horas en minutos. #productividad"],
-    ];
-    for (const [c, text] of demoPosts) {
-      demoStore.state.posts.push({ id: `${id}-${c}`, contentItemId: id, channel: c, status: "draft", text, tags: ["productividad"], createdAt: new Date().toISOString() });
-    }
-    return { ok: true, generated: 3, itemsProcessed: 1, ms: 0 };
+    return { ok: true, ...demoGenerateAll() };
   }
   if (method === "POST" && path === "/api/ideas") {
     if (!body.title) throw new Error("Falta el título");
@@ -686,6 +791,21 @@ async function demoApi(url, opts = {}) {
   if (method === "GET" && path === "/api/config") return demoConfig();
   if (method === "POST" && path === "/api/config") {
     return { ok: true, config: demoConfig(), test: { ok: true, answer: "ok (demo)", ms: 140 } };
+  }
+  if (method === "GET" && path === "/api/chat") {
+    return { messages: demoChat.messages, connectors: demoConfig().connectors, llm: { provider: "kilo-anon", baseUrl: "https://api.kilo.ai/api/gateway", model: "openrouter/free", speed: "equilibrado" } };
+  }
+  if (method === "POST" && path === "/api/chat") {
+    const message = typeof body.message === "string" ? body.message.trim() : "";
+    if (!message) throw new Error("Escribe un mensaje.");
+    demoChat.messages.push({ role: "user", content: message, at: new Date().toISOString() });
+    const out = demoChatReply(message);
+    demoChat.messages.push({ role: "assistant", content: out.reply, at: new Date().toISOString(), executed: out.executed });
+    return { ok: true, messages: demoChat.messages, executed: out.executed };
+  }
+  if (method === "POST" && path === "/api/chat/clear") {
+    demoChat.messages = [];
+    return { ok: true };
   }
   const m = path.match(/^\/api\/posts\/([^/]+)\/([a-z-]+)$/);
   if (m) {
@@ -895,12 +1015,14 @@ function render() {
   const tabDefs = [
     ...Object.keys(TAB_LABEL).map((t) => ({ id: t, label: TAB_LABEL[t], icon: TAB_ICONS[t], count: `(${counts[t]})` })),
     { id: "generate", label: "Generar", icon: "bolt", count: "" },
+    { id: "chat", label: "Chat", icon: "comment", count: "" },
     { id: "config", label: "Config", icon: "gear", count: "" },
   ];
   document.getElementById("tabs").innerHTML = tabDefs.map((t) =>
     `<button class="tab ${t.id === tab ? "active" : ""}" onclick="setTab('${t.id}')">${ic(t.icon)}<span>${t.label}</span>${t.count ? `<span class="cnt">${t.count}</span>` : ""}</button>`).join("");
 
   if (tab === "generate") { renderGen(); return; }
+  if (tab === "chat") { renderChat(); return; }
   if (tab === "config") { renderConfig(); return; }
 
   // Agrupar posts por ítem de contenido.
@@ -1026,6 +1148,207 @@ function fmt(d) {
 }
 
 function setTab(t) { tab = t; render(); }
+
+/* ── Chat con el agente: intercambiar ideas y dar órdenes ── */
+
+async function loadChat() {
+  if (chatLoaded) return;
+  chatLoaded = true;
+  try {
+    chat = await api("/api/chat");
+  } catch (err) {
+    chat = null;
+    chatLoadError = err.message;
+  }
+  if (tab === "chat") render();
+}
+
+function renderChat() {
+  const root = document.getElementById("content");
+  if (!chat) {
+    root.innerHTML = `<div class="empty">${ic("comment", "empty-ic")}
+      <p class="empty-title">Cargando chat…</p>
+      <p class="meta">Conectando con la IA del agente.</p>
+      ${chatLoadError ? `<p class="meta" style="margin-top:8px;color:var(--err)">${esc(chatLoadError)}</p>` : ""}
+      ${chatLoadError ? `<div class="actions" style="justify-content:center;margin-top:12px"><button class="btn" onclick="chatLoaded=false;chatLoadError='';loadChat()">${ic("refresh")} Reintentar</button></div>` : ""}</div>`;
+    loadChat();
+    return;
+  }
+  const conns = chat.connectors || [];
+  const msgs = chat.messages || [];
+  const llmLabel = chat.llm && chat.llm.model ? `${chat.llm.provider} · ${chat.llm.model}` : "configurada";
+  const empty = msgs.length === 0;
+  root.innerHTML = `
+    <div class="chat-card" style="--i:0">
+      <div class="chat-head">
+        <div>
+          <h3>${ic("comment")} Chat con tu agente</h3>
+          <p class="meta">Intercambia ideas, pide planes o da órdenes. La conversación se guarda en <code>data/chat.json</code> y cada mensaje usa la IA que elijas.</p>
+        </div>
+        <div class="chat-head-actions">
+          <select id="chatConnector" onchange="chatConnector=this.value" aria-label="IA del chat">
+            <option value="">IA global (${esc(llmLabel)})</option>
+            ${conns.map((c) => `<option value="${esc(c.id)}" ${chatConnector === c.id ? "selected" : ""}>${esc(c.name || c.id)}</option>`).join("")}
+          </select>
+          <button class="btn btn-ghost" onclick="clearChat()" ${msgs.length ? "" : "disabled"} title="Vaciar la conversación">${ic("trash")} Vaciar</button>
+        </div>
+      </div>
+      <div class="chat-msgs" id="chatMsgs">
+        ${empty ? `
+          <div class="chat-empty">
+            <p class="empty-title">${ic("spark", "ic-lg")} Hola, soy tu agente.</p>
+            <p class="meta">Puedo ayudarte a intercambiar ideas, montar planes de contenido o entender el estado del proyecto. Prueba una de estas órdenes:</p>
+            <div class="chat-chips">
+              <button class="chip-btn" onclick="chatQuick('Dame un resumen del estado actual del proyecto (contenido, borradores, programados, publicados, canales) y sugiere los 3 siguientes pasos.')">Resumen del proyecto</button>
+              <button class="chip-btn" onclick="chatQuick('Genera drafts con IA para todo el contenido pendiente.')">Generar drafts</button>
+              <button class="chip-btn" onclick="chatQuick('Programa todos los borradores pendientes en horarios óptimos.')">Programar pendientes</button>
+              <button class="chip-btn" onclick="chatQuick('Crea un mapa de 30 publicaciones (5 de alcance, 5 sobre problemas, 5 educativas, 5 de autoridad, 5 para objeciones, 5 de conversión) para mi negocio. Antes de empezar, pregunta lo que necesites de mi oferta y público.')">Plan de 30 días</button>
+              <button class="chip-btn" onclick="chatQuick('Haz una lluvia de ideas de 10 temas de contenido para mi nicho, cada uno con ángulo y por qué funcionaría.')">Lluvia de ideas</button>
+            </div>
+          </div>` : ""}
+        ${msgs.map((m, i) => chatMsgHtml(m, i)).join("")}
+      </div>
+      <div class="chat-input">
+        <textarea id="chatText" rows="2" placeholder="Escribe un mensaje, pide una idea o da una orden…" aria-label="Mensaje para el agente" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendChat();}"></textarea>
+        <button class="btn btn-primary" onclick="sendChat()" ${chatSending ? "disabled" : ""}>${ic("send")} Enviar</button>
+      </div>
+    </div>`;
+  // Foco en el input salvo que el usuario esté tocando el selector o Vaciar.
+  const ta = document.getElementById("chatText");
+  const active = document.activeElement;
+  if (ta && (!active || active.id !== "chatConnector")) ta.focus();
+  // Tras enviar un mensaje, la conversación baja al final.
+  if (chatScrollToBottom) {
+    chatScrollToBottom = false;
+    const box = document.getElementById("chatMsgs");
+    if (box) box.scrollTop = box.scrollHeight;
+  }
+}
+
+function chatMsgHtml(m, i) {
+  const cls = m.role === "user" ? "user" : "assistant";
+  const streaming = m.streaming ? " streaming" : "";
+  const time = m.at ? `<span class="chat-time">${fmt(new Date(m.at))}</span>` : "";
+  const exec = m.executed
+    ? `<div class="chat-exec ${m.executed.ok ? "ok" : "err"}">${ic(m.executed.ok ? "checkCircle" : "xCircle", "ic-sm")}<span>Acción ejecutada: <b>${esc(m.executed.label)}</b>${m.executed.detail ? ` — ${esc(m.executed.detail)}` : ""}</span></div>`
+    : "";
+  const bubble = m.streaming && !m.content
+    ? `<div class="msg-bubble stream-hint">${ic("spark", "ic-sm")} Escribiendo…</div>`
+    : `<div class="msg-bubble">${esc(m.content)}</div>`;
+  return `<div class="msg ${cls}${streaming}" style="--i:${i}">${bubble}${exec}${time}</div>`;
+}
+
+/** Añade un fragmento del stream del agente a su burbuja sin re-renderizar todo. */
+function appendStreamDelta(delta) {
+  const last = chat.messages[chat.messages.length - 1];
+  if (last && last.role === "assistant" && last.streaming) last.content += delta;
+  const bubble = document.querySelector(".msg.assistant.streaming .msg-bubble");
+  if (bubble) bubble.textContent += delta;
+  const box = document.getElementById("chatMsgs");
+  if (box) box.scrollTop = box.scrollHeight;
+}
+
+function chatQuick(msg) {
+  const ta = document.getElementById("chatText");
+  if (ta) ta.value = msg;
+  sendChat();
+}
+
+async function sendChat() {
+  if (chatSending) return;
+  const ta = document.getElementById("chatText");
+  const message = ta ? ta.value.trim() : "";
+  if (!message) return;
+  ta.value = "";
+  chatSending = true;
+  chatScrollToBottom = true;
+  const connId = chatConnector;
+  const draft = [...(chat.messages || []), { role: "user", content: message, at: new Date().toISOString() }];
+  // Burbuja del asistente que se rellena en vivo con el stream (SSE).
+  chat = { ...chat, messages: [...draft, { role: "assistant", content: "", at: new Date().toISOString(), streaming: true }] };
+  renderChat();
+  try {
+    if (demoMode) {
+      // Demo estática: sin streaming real; la respuesta llega completa.
+      const data = await api("/api/chat", { method: "POST", body: JSON.stringify({ message, connectorId: connId }) });
+      chat = { ...chat, messages: data.messages || chat.messages, llm: data.llm || chat.llm };
+      if (data.executed) {
+        chatScrollToBottom = true;
+        try { await refresh(); } catch { /* el chat sigue funcionando */ }
+      }
+    } else {
+      const res = await fetch("/api/chat/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, connectorId: connId }),
+      });
+      if (!res.ok || !res.body) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finished = false;
+      let executed = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const ev of events) {
+          const line = ev.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          let payload;
+          try { payload = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (typeof payload.delta === "string") {
+            appendStreamDelta(payload.delta);
+          } else if (payload.done) {
+            finished = true;
+            executed = payload.executed || null;
+            chat = { ...chat, messages: payload.messages || chat.messages, llm: payload.llm || chat.llm };
+          } else if (payload.error) {
+            throw new Error(payload.error);
+          }
+        }
+      }
+      // Si el stream se cortó sin evento done, se finaliza la burbuja igual.
+      const last = chat.messages[chat.messages.length - 1];
+      if (!finished && last && last.role === "assistant" && last.streaming) last.streaming = false;
+      // Si el agente ejecutó una orden real, refrescar el estado del panel
+      // (contadores, chips de canales, badge de modo) sin salir del chat.
+      if (executed) {
+        chatScrollToBottom = true;
+        try { await refresh(); } catch { /* el chat sigue funcionando */ }
+      }
+    }
+  } catch (err) {
+    // Marca la burbuja en curso como error conservando lo ya escrito.
+    const last = chat.messages[chat.messages.length - 1];
+    if (last && last.role === "assistant" && last.streaming) {
+      last.streaming = false;
+      last.content = last.content.trim()
+        ? `${last.content}\n\nNo pude terminar la respuesta: ${err.message}`
+        : `No pude contactar con la IA: ${err.message} (pulsa Enviar para reintentar).`;
+    } else {
+      chat = { ...chat, messages: [...chat.messages, { role: "assistant", content: `No pude contactar con la IA: ${err.message} (pulsa Enviar para reintentar).`, at: new Date().toISOString() }] };
+    }
+  }
+  chatSending = false;
+  renderChat();
+}
+
+async function clearChat() {
+  if (!confirm("¿Vaciar la conversación con el agente?")) return;
+  try {
+    await api("/api/chat/clear", { method: "POST", body: "{}" });
+    chat = { ...(chat || {}), messages: [] };
+  } catch (err) {
+    alert("Error al vaciar: " + err.message);
+  }
+  renderChat();
+}
 
 /* ── Pestaña de generación: subir medios, ideas y generar con IA ── */
 

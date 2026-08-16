@@ -332,6 +332,23 @@ publicar, con el flujo aprobar/descartar en vivo:
   **arrastrar archivos .md/.txt** (o texto suelto) como ideas y **pegar URLs de
   YouTube/TikTok** para descargar el vídeo solo a `content/media` (requiere
   yt-dlp: `npm run setup:tools`).
+- **Pestaña 💬 Chat con tu agente**: conversación persistente (se guarda en
+  `data/chat.json`) para intercambiar ideas, pedir planes editoriales (p. ej. de
+  30 días) o dar órdenes. El agente recibe el contexto vivo del proyecto
+  (contenido, drafts, programados, publicados, canales y modo de publicación) y
+  responde con la IA que elijas en un selector: la global o cualquiera de los
+  **🔌 conectores** de la ⚙️ Config (local, tu máquina con Qwen o APIs en la
+  nube). Incluye órdenes rápidas (Resumen del proyecto, Plan de 30 días, Lluvia
+  de ideas, Generar drafts, Programar pendientes) y botón para vaciar la
+  conversación. **Órdenes ejecutables**: si pides al agente generar drafts,
+  programar los pendientes o cambiar el modo de publicación, responde con un
+  comando JSON (`{"accion":"generar"}`, `{"accion":"programar"}`,
+  `{"accion":"publicacion","dryRun":false}`…) que el panel ejecuta de verdad
+  sobre el proyecto (arranca la generación en segundo plano, programa los
+  borradores en horarios óptimos o aplica el nuevo modo en caliente), muestra un
+  chip con el resultado y refresca contadores, canales y badge. La respuesta se
+  muestra **en vivo (SSE)**: el texto aparece mientras el agente lo escribe
+  (`POST /api/chat/stream`, con `POST /api/chat` como variante sin streaming).
 
 API REST integrada (`GET /api/state`, `PATCH /api/posts/:id/edit`,
 `POST /api/posts/:id/{schedule|publish|discard}`, `POST /api/posts/approve-all`,

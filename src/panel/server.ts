@@ -5,10 +5,10 @@ import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PLATFORM_PROFILES } from "../agent/marketingAgent.js";
 import { mimeOf } from "../channels/http.js";
-import { CONTENT_EXTENSIONS, loadConfig, type AgentConfig } from "../config.js";
+import { CONTENT_EXTENSIONS, loadConfig, type AgentConfig, type LlmSpeed } from "../config.js";
 import { generateForAll, generateForItem, type GenerationProgress } from "../generator.js";
 import { ingest } from "../ingest.js";
-import { applyLocalLlm, chat } from "../llm.js";
+import { applyLocalLlm, chat, chatStream, type LlmOptions } from "../llm.js";
 import { CHANNEL_LIMITS, publishSingle, scheduleDrafts, scheduleSingle } from "../publisher.js";
 import { Store } from "../storage.js";
 import type { ChannelId } from "../types.js";
@@ -29,6 +29,39 @@ interface GenerationState {
   ms?: number;
 }
 let generation: GenerationState | null = null;
+
+/** Arranca una generación en segundo plano (o falla si ya hay una en curso).
+ *  Lo usan POST /api/generate y las órdenes del chat. */
+function startGeneration(config: AgentConfig, itemId?: string): { ok: true } | { ok: false; error: string } {
+  if (generation?.running) return { ok: false, error: "Ya hay una generación en curso. Espera a que termine." };
+  const startedAt = Date.now();
+  generation = { running: true, currentItem: undefined, index: 0, total: 0, generated: 0, startedAt };
+  const update = (p: GenerationProgress): void => {
+    if (generation) Object.assign(generation, p);
+  };
+  const genStore = new Store(config.dataFile);
+  const run = itemId ? generateForItem(config, genStore, itemId, update) : generateForAll(config, genStore, update);
+  run
+    .then((result) => {
+      if (!generation) return;
+      Object.assign(generation, {
+        running: false,
+        currentItem: undefined,
+        index: generation.total,
+        ...result,
+        ms: Date.now() - startedAt,
+      });
+    })
+    .catch((err) => {
+      if (!generation) return;
+      Object.assign(generation, {
+        running: false,
+        error: err instanceof Error ? err.message : String(err),
+        ms: Date.now() - startedAt,
+      });
+    });
+  return { ok: true };
+}
 
 /** Ruta del HTML del panel: se lee en runtime desde src (sin paso de build). */
 function panelHtmlPath(config: AgentConfig): string {
@@ -148,36 +181,9 @@ async function handleApi(
   // Generación de drafts con IA: arranca en segundo plano y devuelve 202;
   // el panel consulta /api/generation para ver el progreso por ítem.
   if (method === "POST" && pathname === "/api/generate") {
-    if (generation?.running) return sendJson(res, 409, { error: "Ya hay una generación en curso. Espera a que termine." });
     const itemId = typeof json.itemId === "string" ? json.itemId : undefined;
-    const startedAt = Date.now();
-    generation = { running: true, currentItem: undefined, index: 0, total: 0, generated: 0, startedAt };
-    const update = (p: GenerationProgress): void => {
-      if (generation) Object.assign(generation, p);
-    };
-    const genStore = new Store(config.dataFile);
-    const run = itemId
-      ? generateForItem(config, genStore, itemId, update)
-      : generateForAll(config, genStore, update);
-    run
-      .then((result) => {
-        if (!generation) return;
-        Object.assign(generation, {
-          running: false,
-          currentItem: undefined,
-          index: generation.total,
-          ...result,
-          ms: Date.now() - startedAt,
-        });
-      })
-      .catch((err) => {
-        if (!generation) return;
-        Object.assign(generation, {
-          running: false,
-          error: err instanceof Error ? err.message : String(err),
-          ms: Date.now() - startedAt,
-        });
-      });
+    const started = startGeneration(config, itemId);
+    if (!started.ok) return sendJson(res, 409, { error: started.error });
     return sendJson(res, 202, { ok: true });
   }
 
@@ -373,10 +379,126 @@ async function handleApi(
     applyUiConfig(config.root, true);
     const fresh = loadConfig(config.root);
     await applyLocalLlm(fresh, () => {}); // silencioso: el panel ya muestra el resultado
-    runtime.config = fresh;
+    applyFreshConfig(runtime, fresh);
     const out = configView(fresh, loadUiConfig(fresh.root));
     const test = json.test === true ? await testLlmConnection(fresh) : undefined;
     return sendJson(res, 200, { ok: true, config: out, test });
+  }
+
+  // ── Chat con el agente: conversación persistente con la IA elegida ──
+  if (method === "GET" && pathname === "/api/chat") {
+    return sendJson(res, 200, {
+      messages: loadChat(config.root),
+      connectors: Object.values(loadConnectors(config.root)),
+      llm: { provider: config.llm.provider, baseUrl: config.llm.baseUrl, model: config.llm.model, speed: config.llm.speed },
+    });
+  }
+
+  if (method === "POST" && pathname === "/api/chat/clear") {
+    saveChat(config.root, []);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (method === "POST" && pathname === "/api/chat") {
+    const message = typeof json.message === "string" ? json.message.trim() : "";
+    if (!message) return sendJson(res, 400, { error: "Escribe un mensaje." });
+    const connectorId = typeof json.connectorId === "string" ? json.connectorId : "";
+    const chatStore = new Store(config.dataFile);
+    const history = loadChat(config.root);
+    const userEntry: ChatEntry = { role: "user", content: message, at: new Date().toISOString() };
+    const messages = [...history, userEntry].slice(-40);
+    try {
+      const opts = chatLlmOptions(config, connectorId);
+      const llmMessages = [
+        { role: "system" as const, content: chatSystemPrompt(config, chatStore) },
+        ...messages.slice(-20).map((m) => ({ role: m.role, content: m.content })),
+      ];
+      const answer = await chat(opts, llmMessages, 1);
+      // Órdenes ejecutables: si el agente responde con un JSON de acción al
+      // final, el panel lo ejecuta de verdad (generar, programar, publicación).
+      const cmd = extractChatAction(answer);
+      const executed = cmd ? await runChatAction(runtime, cmd) : null;
+      const updated = [
+        ...messages,
+        { role: "assistant" as const, content: answer, at: new Date().toISOString(), executed },
+      ].slice(-40);
+      saveChat(config.root, updated);
+      return sendJson(res, 200, {
+        ok: true,
+        messages: updated,
+        llm: { provider: opts.provider, baseUrl: opts.baseUrl, model: opts.model, speed: opts.speed },
+        executed,
+      });
+    } catch (err) {
+      // El mensaje del usuario queda guardado para no perder el hilo; la
+      // respuesta fallida se reintenta desde el panel.
+      saveChat(config.root, messages);
+      return sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // Chat con streaming (SSE): el panel muestra el texto mientras el agente
+  // escribe. Cada fragmento llega como data:{"delta":"…"} y al final se envía
+  // data:{"done":true,"messages":[…],"executed":…} (las órdenes se ejecutan
+  // igual que en POST /api/chat). POST /api/chat se mantiene para no-stream.
+  if (method === "POST" && pathname === "/api/chat/stream") {
+    const message = typeof json.message === "string" ? json.message.trim() : "";
+    if (!message) return sendJson(res, 400, { error: "Escribe un mensaje." });
+    const connectorId = typeof json.connectorId === "string" ? json.connectorId : "";
+    const chatStore = new Store(config.dataFile);
+    const history = loadChat(config.root);
+    const userEntry: ChatEntry = { role: "user", content: message, at: new Date().toISOString() };
+    const messages = [...history, userEntry].slice(-40);
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    const send = (obj: unknown): void => {
+      if (res.writableEnded || res.destroyed) return;
+      try {
+        res.write(`data: ${JSON.stringify(obj)}\n\n`);
+      } catch {
+        /* cliente desconectado */
+      }
+    };
+    // Si el cliente se va, aborta la petición al LLM (libera el servidor).
+    const controller = new AbortController();
+    res.on("close", () => {
+      if (!res.writableEnded) controller.abort();
+    });
+
+    try {
+      const opts = chatLlmOptions(config, connectorId);
+      opts.signal = controller.signal;
+      const full = await chatStream(
+        opts,
+        [
+          { role: "system", content: chatSystemPrompt(config, chatStore) },
+          ...messages.slice(-20).map((m) => ({ role: m.role, content: m.content })),
+        ],
+        (delta) => send({ delta }),
+      );
+      const cmd = extractChatAction(full);
+      const executed = cmd ? await runChatAction(runtime, cmd) : null;
+      const updated = [
+        ...messages,
+        { role: "assistant" as const, content: full, at: new Date().toISOString(), executed },
+      ].slice(-40);
+      saveChat(config.root, updated);
+      send({
+        done: true,
+        messages: updated,
+        executed,
+        llm: { provider: opts.provider, baseUrl: opts.baseUrl, model: opts.model, speed: opts.speed },
+      });
+      res.end();
+    } catch (err) {
+      saveChat(config.root, messages);
+      send({ error: err instanceof Error ? err.message : String(err) });
+      res.end();
+    }
   }
 
   if (method === "GET" && pathname === "/api/state") {
@@ -499,6 +621,278 @@ function configView(config: AgentConfig, saved: UiConfigVars): Record<string, un
       };
     }),
   };
+}
+
+/* ── Chat con el agente: persistencia y resolución de la IA ── */
+
+/** Entrada del historial de chat (data/chat.json). */
+interface ChatEntry {
+  role: "user" | "assistant";
+  content: string;
+  at: string;
+  /** Orden ejecutada de verdad por el panel (solo en respuestas del agente). */
+  executed?: ChatExecuted | null;
+}
+
+/** Resultado de una orden ejecutada (se muestra como chip en el chat). */
+interface ChatExecuted {
+  action: string;
+  ok: boolean;
+  label: string;
+  detail?: string;
+}
+
+interface ChatActionParams {
+  /** Título (o parte) del ítem sobre el que generar. */
+  item?: string;
+  dryRun?: boolean;
+  autoPublish?: boolean;
+}
+
+interface ChatAction {
+  action: string;
+  params: ChatActionParams;
+}
+
+/** Órdenes que el agente puede pedir que se ejecuten (etiqueta mostrada al usuario). */
+const CHAT_ACTIONS: Record<string, string> = {
+  generar: "Generar drafts con IA",
+  programar: "Programar pendientes",
+  publicacion: "Cambiar modo de publicación",
+};
+
+function chatFile(root: string): string {
+  return join(root, "data", "chat.json");
+}
+
+/** Lee el historial de chat ([] si no existe o está corrupto). */
+function loadChat(root: string): ChatEntry[] {
+  const file = chatFile(root);
+  if (!existsSync(file)) return [];
+  try {
+    const data = JSON.parse(readFileSync(file, "utf8")) as { messages?: unknown };
+    if (!Array.isArray(data.messages)) return [];
+    return data.messages.filter((m): m is ChatEntry => {
+      if (typeof m !== "object" || m === null) return false;
+      const role = (m as ChatEntry).role;
+      return role === "user" || role === "assistant";
+    });
+  } catch {
+    return [];
+  }
+}
+
+function saveChat(root: string, messages: ChatEntry[]): void {
+  const file = chatFile(root);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify({ messages }, null, 2) + "\n");
+}
+
+/** Opciones del LLM para el chat: el conector elegido o la IA global efectiva. */
+function chatLlmOptions(config: AgentConfig, connectorId: string): LlmOptions {
+  if (connectorId) {
+    const c = loadConnectors(config.root)[connectorId];
+    if (c) return connectorToLlmOptions(c);
+  }
+  const g = config.llm;
+  return {
+    baseUrl: g.baseUrl,
+    apiKey: g.apiKey ?? "",
+    model: g.model,
+    provider: g.provider,
+    speed: g.speed,
+    temperature: 0.7,
+    // El anónimo sin clave puede tardar (auto-routing); con clave, timeout normal.
+    timeoutMs: g.apiKey ? 60_000 : 120_000,
+  };
+}
+
+/** Convierte un conector del panel en opciones del LLM (mismo criterio que el generador). */
+function connectorToLlmOptions(c: ConnectorConfig): LlmOptions {
+  const speed = (["ahorro", "equilibrado", "rendimiento"] as const).includes(c.speed as LlmSpeed)
+    ? (c.speed as LlmSpeed)
+    : "equilibrado";
+  switch (c.source) {
+    case "local":
+      return {
+        provider: "ollama",
+        baseUrl: c.baseUrl || "http://localhost:11434/v1",
+        apiKey: "",
+        model: c.model || "qwen2.5:7b",
+        speed,
+        temperature: 0.7,
+        timeoutMs: 120_000,
+      };
+    case "remote":
+      return {
+        provider: "ollama",
+        baseUrl: `${(c.ollamaBaseUrl || "http://localhost:11434").replace(/\/+$/, "")}/v1`,
+        apiKey: "",
+        model: c.ollamaModel || c.model || "qwen2.5:7b",
+        speed,
+        temperature: 0.7,
+        timeoutMs: 120_000,
+      };
+    default:
+      return {
+        provider: c.apiKey ? "openai" : "kilo-anon",
+        baseUrl: c.baseUrl || "https://api.openai.com/v1",
+        apiKey: c.apiKey || "",
+        model: c.model || "gpt-4o-mini",
+        speed,
+        temperature: 0.7,
+        timeoutMs: c.apiKey ? 60_000 : 120_000,
+      };
+  }
+}
+
+/** Prompt de sistema del chat: rol de agente + contexto vivo del proyecto. */
+function chatSystemPrompt(config: AgentConfig, store: Store): string {
+  const s = store.stats();
+  const channelsOn = (Object.keys(config.channels) as ChannelId[]).filter((id) => config.channels[id].enabled);
+  const channelsInfo = channelsOn.length
+    ? channelsOn.map((id) => `${PLATFORM_PROFILES[id].name} (${CHANNEL_LIMITS[id]} car.)`).join(", ")
+    : "ninguno";
+  const mode = config.autoPublish
+    ? "autónomo (publica solo)"
+    : config.dryRun
+      ? "simulación (DRY_RUN=1)"
+      : "en vivo (revisión manual)";
+  return `Eres el agente de Social Agent: estratega senior de marketing y copiloto del usuario.
+Estás integrado en el panel de un proyecto que ingiere ideas y media, genera publicaciones por
+plataforma con IA, las deja en borradores para revisión y las programa/publica en varias redes.
+
+ESTADO ACTUAL DEL PROYECTO (contexto vivo, úsalo y no lo inventes):
+- Contenido: ${s.items} ítem(s) (ideas y media).
+- Publicaciones: ${s.drafts} en borrador, ${s.scheduled} programadas, ${s.published} publicadas, ${s.failed} fallidas.
+- Canales habilitados: ${channelsInfo}.
+- Modo de publicación: ${mode}.
+- IA en uso: ${config.llm.provider} · ${config.llm.model} (modo ${config.llm.speed}).
+
+LÍMITES DE CARACTERES POR PLATAFORMA (respétalos en cualquier propuesta):
+Mastodon 500 · Bluesky 300 · X (Twitter) 280 · LinkedIn 3000 · Instagram 2200 · Facebook 63206 · TikTok 2200.
+
+CÓMO AYUDAR:
+- Intercambiar ideas de contenido, planes editoriales (p. ej. de 30 días) y estrategia por plataforma.
+- Proponer ganchos, titulares y textos respetando el límite y el tono de cada red.
+- Explicar cómo funciona el proyecto o sugerir órdenes accionables.
+- Cuando pidas un plan, hazlo concreto y numerado; no inventes cifras, resultados ni testimonios.
+- Responde SIEMPRE en español, directo y sin relleno. Si falta contexto (negocio, oferta, público),
+pregúntalo antes de inventarlo.
+
+ÓRDENES EJECUTABLES (el panel las ejecuta de verdad):
+- Si el usuario pide GENERAR drafts: responde en texto y termina con la ÚLTIMA línea:
+  {"accion":"generar"}
+  (para un ítem concreto por su título: {"accion":"generar","item":"<parte del título>"})
+- Si pide PROGRAMAR los pendientes (aprobar borradores): termina con:
+  {"accion":"programar"}
+- Si pide cambiar el MODO DE PUBLICACIÓN (simulación/en vivo, autónomo/manual), termina con:
+  {"accion":"publicacion","dryRun":false} y/o {"accion":"publicacion","autoPublish":true}
+Reglas: explica antes en texto qué vas a ejecutar; el JSON va SIEMPRE como última línea,
+sin texto ni comillas detrás. No lo emitas si la petición es solo informativa o dudosa.`;
+}
+
+/** Actualiza la config en vivo conservando las rutas del runtime (root,
+ *  carpetas de contenido y dataFile): solo cambian IA, canales y modo de
+ *  publicación. loadConfig() las recalcula desde env/.env; el runtime ya las
+ *  tiene fijadas (p. ej. rutas de test o personalizadas). */
+function applyFreshConfig(runtime: Runtime, fresh: AgentConfig): void {
+  runtime.config = {
+    ...runtime.config,
+    dryRun: fresh.dryRun,
+    autoPublish: fresh.autoPublish,
+    minIntervalMs: fresh.minIntervalMs,
+    llm: fresh.llm,
+    channels: fresh.channels,
+  };
+}
+
+/* ── Órdenes ejecutables del agente ─────────────────────────── */
+
+/** Extrae el JSON de acción que el agente debe emitir como ÚLTIMA línea.
+ *  Formato: {"accion":"generar"} · {"accion":"programar"} ·
+ *  {"accion":"publicacion","dryRun":false} — tolera cercos ```json``` y
+ *  texto antes, pero exige que el JSON termine la respuesta. */
+function extractChatAction(raw: string): ChatAction | null {
+  const clean = raw.replace(/```(?:json)?\s*([\s\S]*?)```\s*$/, "$1").trim();
+  const m = clean.match(/\{\s*"accion"[\s\S]*?\}\s*$/);
+  if (!m) return null;
+  try {
+    const obj = JSON.parse(m[0]) as { accion?: unknown; item?: unknown; dryRun?: unknown; autoPublish?: unknown };
+    if (typeof obj.accion !== "string") return null;
+    return {
+      action: obj.accion,
+      params: {
+        item: typeof obj.item === "string" ? obj.item : undefined,
+        dryRun: typeof obj.dryRun === "boolean" ? obj.dryRun : undefined,
+        autoPublish: typeof obj.autoPublish === "boolean" ? obj.autoPublish : undefined,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Ejecuta la orden del agente y devuelve el resultado (nunca lanza). */
+async function runChatAction(runtime: Runtime, cmd: ChatAction): Promise<ChatExecuted> {
+  const label = CHAT_ACTIONS[cmd.action];
+  if (!label) {
+    return {
+      action: cmd.action,
+      ok: false,
+      label: "Acción desconocida",
+      detail: `«${cmd.action}» no es una orden soportada.`,
+    };
+  }
+  try {
+    const detail = await executeChatAction(runtime, cmd);
+    return { action: cmd.action, ok: true, label, detail };
+  } catch (err) {
+    return { action: cmd.action, ok: false, label, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Ejecuta cada orden concreta sobre la config y el store en vivo. */
+async function executeChatAction(runtime: Runtime, cmd: ChatAction): Promise<string> {
+  const config = runtime.config;
+  const store = new Store(config.dataFile);
+  switch (cmd.action) {
+    case "generar": {
+      let itemId: string | undefined;
+      let itemTitle: string | undefined;
+      if (cmd.params.item && cmd.params.item.trim()) {
+        const needle = cmd.params.item.trim().toLowerCase();
+        const found = store.contentItems.find((it) => it.title.toLowerCase().includes(needle));
+        if (!found) throw new Error(`no encontré ningún ítem cuyo título contenga «${cmd.params.item}».`);
+        itemId = found.id;
+        itemTitle = found.title;
+      }
+      const started = startGeneration(config, itemId);
+      if (!started.ok) throw new Error(started.error);
+      return itemTitle
+        ? `generación iniciada en segundo plano para «${itemTitle}». Sigue el progreso en la pestaña Generar.`
+        : "generación iniciada en segundo plano para los ítems sin cubrir. Sigue el progreso en la pestaña Generar.";
+    }
+    case "programar": {
+      const scheduled = scheduleDrafts(config, store);
+      if (scheduled === 0) return "no había pendientes que programar.";
+      return `${scheduled} draft(s) programados en horarios óptimos.`;
+    }
+    case "publicacion": {
+      const vars: UiConfigVars = {};
+      if (cmd.params.dryRun !== undefined) vars.DRY_RUN = cmd.params.dryRun ? "1" : "0";
+      if (cmd.params.autoPublish !== undefined) vars.AUTO_PUBLISH = cmd.params.autoPublish ? "1" : "0";
+      if (Object.keys(vars).length === 0) throw new Error("indica al menos dryRun o autoPublish.");
+      saveUiConfig(config.root, vars);
+      applyUiConfig(config.root, true);
+      const fresh = loadConfig(config.root);
+      await applyLocalLlm(fresh, () => {}); // silencioso: el panel muestra el resultado
+      applyFreshConfig(runtime, fresh);
+      return `modo de publicación: ${fresh.dryRun ? "simulación" : "en vivo"} + ${fresh.autoPublish ? "autónomo" : "manual"}.`;
+    }
+    default:
+      throw new Error("acción no soportada");
+  }
 }
 
 /** Prueba rápida de conexión contra la config actual (como llm:check). */
