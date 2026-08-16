@@ -331,9 +331,15 @@ npm run gen-image -- "prompt"   # imagen gratis (Pollinations/HF)
 
 El panel también está publicado como **demo estática** en
 [**https://re1m0n.github.io/social-agent/**](https://re1m0n.github.io/social-agent/)
-(se actualiza sola en cada push a `main`). Sin backend, el panel entra en
-**modo demo**: muestra datos de ejemplo y simula aprobar/programar/publicar
-en el navegador, para ver la interfaz sin tocar tu cola real.
+(se actualiza sola en cada push a `main`). El modo se elige con el selector
+**🖥 Servidor / 🧪 Demo** de la cabecera:
+
+- **Auto (por defecto)**: intenta conectar con la API; si no hay backend
+  (GitHub Pages, `file://`), cae automáticamente al modo demo.
+- **🧪 Demo**: datos de ejemplo y acciones simuladas en el navegador, para ver
+  la interfaz sin tocar tu cola real.
+- **🖥 Servidor**: fuerza la conexión al panel real (`npm run panel`). Si no
+  hay servidor, muestra un banner de error en vez de cambiar de modo a solas.
 
 ## Notas de producción
 

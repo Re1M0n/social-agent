@@ -16,6 +16,7 @@
   .badge { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
   .badge.dry { background: rgba(255,201,77,.15); color: var(--warn); border: 1px solid rgba(255,201,77,.4); }
   .badge.live { background: rgba(62,207,142,.15); color: var(--ok); border: 1px solid rgba(62,207,142,.4); }
+  .badge.err { background: rgba(255,93,93,.15); color: var(--err); border: 1px solid rgba(255,93,93,.4); }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: var(--card); border: 1px solid var(--border); padding: 3px 10px; border-radius: 999px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -26,6 +27,9 @@
   button.ok { background: var(--ok); border-color: transparent; color: #0b0e14; font-weight: 600; }
   button.danger { background: rgba(255,93,93,.12); color: var(--err); border-color: rgba(255,93,93,.35); }
   button:disabled { opacity: .4; cursor: not-allowed; }
+  .mode-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .mode-toggle button { border: none; border-radius: 0; background: var(--card2); padding: 6px 12px; }
+  .mode-toggle button.active { background: var(--accent); color: #0b0e14; font-weight: 600; }
   .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
   .tab { border-radius: 8px 8px 0 0; border-bottom: 2px solid transparent; }
   .tab.active { border-bottom-color: var(--accent); background: var(--card); color: var(--text); }
@@ -84,6 +88,10 @@
 <header>
   <h1>🤖 Social Agent <span class="badge dry" id="modeBadge">DRY-RUN</span></h1>
   <div class="chips" id="chips"></div>
+  <div class="mode-toggle" role="group" aria-label="Modo del panel">
+    <button id="btnServer" class="active" onclick="switchMode('server')">🖥 Servidor</button>
+    <button id="btnDemo" onclick="switchMode('demo')">🧪 Demo</button>
+  </div>
   <div class="spacer"></div>
   <button onclick="refresh()">↻ Actualizar</button>
   <button class="primary" onclick="approveAll()">✅ Aprobar todos los pendientes</button>
@@ -95,8 +103,14 @@
 </div>
 
 <div class="banner" id="demoBanner" hidden style="border-color:rgba(108,140,255,.4);color:#a9bdff;background:rgba(108,140,255,.1)">
-  🧪 <b>Demo estática (GitHub Pages)</b>: datos de ejemplo y acciones simuladas en tu navegador.
-  Ejecuta <code>npm run panel</code> para el panel real con tus drafts.
+  🧪 <b>Modo demo</b>: datos de ejemplo y acciones simuladas en tu navegador.
+  Cambia a <b>🖥 Servidor</b> si ejecutas <code>npm run panel</code>, o pulsa <b>🧪 Demo</b> para volver aquí.
+</div>
+
+<div class="banner" id="serverBanner" hidden style="border-color:rgba(255,93,93,.35);color:var(--err);background:rgba(255,93,93,.08)">
+  ⚠️ <b>Sin conexión con el servidor</b>: <span id="serverErrorText"></span>.
+  Ejecuta <code>npm run panel</code> y pulsa ↻ Actualizar, o cambia a
+  <button class="v-use" onclick="switchMode('demo')">🧪 Demo</button>.
 </div>
 
 <div class="tabs" id="tabs"></div>
@@ -119,6 +133,8 @@ let tab = "draft";
 
 // ── Modo demo (GitHub Pages: sin backend; datos y acciones simuladas) ──
 let demoMode = false;
+let manualMode = null; // null = auto (fallback por API); "demo"/"server" = elección explícita
+let serverError = null;
 const DEMO_LIMITS = { mastodon: 500, bluesky: 300, twitter: 280, linkedin: 3000, instagram: 2200, facebook: 63206, tiktok: 2200 };
 const demoNow = Date.now();
 const DEMO_ITEMS = [
@@ -198,10 +214,54 @@ async function demoApi(url, opts = {}) {
 
 function enableDemo() {
   demoMode = true;
+  serverError = null;
   state = demoStore.state;
-  const b = document.getElementById("demoBanner");
-  if (b) b.hidden = false;
   render();
+}
+
+function switchMode(m) {
+  manualMode = m;
+  if (m === "demo") {
+    demoMode = true;
+    serverError = null;
+    state = demoStore.state;
+    render();
+  } else {
+    demoMode = false;
+    serverError = null;
+    state = null; // limpia los datos de demo; refresh() carga los del servidor
+    render();
+    refresh();
+  }
+}
+
+function updateModeUI() {
+  const badge = document.getElementById("modeBadge");
+  const dry = state ? state.dryRun : false;
+  if (demoMode) {
+    badge.textContent = "DEMO estática";
+    badge.className = "badge dry";
+  } else if (!state) {
+    badge.textContent = "SIN CONEXIÓN";
+    badge.className = "badge err";
+  } else {
+    badge.textContent = dry ? "DRY-RUN (simulación)" : "EN VIVO";
+    badge.className = "badge " + (dry ? "dry" : "live");
+  }
+  document.getElementById("dryBanner").hidden = !dry || demoMode;
+  document.getElementById("demoBanner").hidden = !demoMode;
+  const sb = document.getElementById("serverBanner");
+  sb.hidden = demoMode || !serverError;
+  document.getElementById("serverErrorText").textContent = serverError || "";
+  document.getElementById("btnServer").classList.toggle("active", !demoMode);
+  document.getElementById("btnDemo").classList.toggle("active", demoMode);
+}
+
+function apiFailed(msg) {
+  serverError = msg;
+  if (manualMode === "server") { render(); return; }
+  // Fallback automático solo cuando el usuario no eligió explícitamente el modo servidor.
+  enableDemo();
 }
 
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -221,31 +281,31 @@ async function api(url, opts = {}) {
 }
 
 async function refresh() {
-  if (demoMode) { state = demoStore.state; return render(); }
+  if (demoMode) { state = demoStore.state; render(); return; }
   let res;
   try {
     res = await fetch("/api/state", { headers: { "Content-Type": "application/json" } });
-  } catch {
-    return enableDemo();
+  } catch (err) {
+    return apiFailed("no se pudo contactar con el servidor (" + (err && err.message ? err.message : err) + ")");
   }
-  // Sin backend (GitHub Pages / file://): pasamos al modo demo.
-  if (res.status === 404) return enableDemo();
+  if (res.status === 404) return apiFailed("la API del panel no responde (HTTP 404)");
+  if (!res.ok) return apiFailed("la API del panel respondió HTTP " + res.status);
+  serverError = null;
   state = await res.json();
   render();
 }
 
 function render() {
-  // Modo.
-  const dry = state.dryRun;
-  const badge = document.getElementById("modeBadge");
-  if (demoMode) {
-    badge.textContent = "DEMO estática";
-    badge.className = "badge dry";
-  } else {
-    badge.textContent = dry ? "DRY-RUN (simulación)" : "EN VIVO";
-    badge.className = "badge " + (dry ? "dry" : "live");
+  updateModeUI();
+
+  if (!state) {
+    document.getElementById("chips").innerHTML = "";
+    document.getElementById("tabs").innerHTML = "";
+    document.getElementById("content").innerHTML = serverError
+      ? `<div class="empty">⚠️ ${esc(serverError)}</div>`
+      : `<div class="empty">Conectando con el servidor…</div>`;
+    return;
   }
-  document.getElementById("dryBanner").hidden = !dry;
 
   // Chips de canales.
   document.getElementById("chips").innerHTML = state.channels.map((c) =>
