@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../config.js";
-import { chat, extractJson, type LlmOptions } from "../llm.js";
+import { chat, extractJson, groupChannelsByLlm, type LlmOptions } from "../llm.js";
 import type { ChannelId, ContentItem, Draft } from "../types.js";
 import { CHANNELS } from "../types.js";
 
@@ -135,46 +135,67 @@ interface LlmPost {
   rationale?: string;
 }
 
-/** Genera drafts para las plataformas indicadas usando el LLM configurado. */
+/** Genera drafts para las plataformas indicadas usando el LLM configurado.
+ *  Agrupa los canales por su IA efectiva (IA por canal): cada grupo con IA
+ *  distinta se genera por separado; si una IA falla, ese grupo cae a plantillas
+ *  sin afectar a los demás. */
 export async function generateWithLlm(
   config: AgentConfig,
   item: ContentItem,
   channels: ChannelId[],
 ): Promise<Draft[]> {
-  const opts: LlmOptions = {
-    baseUrl: config.llm.baseUrl,
-    apiKey: config.llm.apiKey ?? "",
-    model: config.llm.model,
-    temperature: 0.8,
-    provider: config.llm.provider,
-    speed: config.llm.speed,
-    // Proveedor gratuito anónimo (sin key): 1 intento y timeout amplio — el
-    // auto-routing gratuito tarda ~90s en generar el JSON de todos los canales.
-    ...(config.llm.apiKey ? {} : { timeoutMs: 180_000 }),
-  };
-  const raw = await chat(
-    opts,
-    [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt(item, channels) },
-    ],
-    config.llm.apiKey ? 3 : 1,
-  );
-  const parsed = extractJson<{ posts: LlmPost[] }>(raw);
+  const groups = groupChannelsByLlm(config, channels);
+  const drafts: Draft[] = [];
   const now = new Date().toISOString();
-  return parsed.posts
-    .filter((p) => (channels as string[]).includes(p.channel))
-    .map((p) => ({
-      id: `post-${item.id}-${p.channel}`,
-      contentItemId: item.id,
-      channel: p.channel as ChannelId,
-      text: p.text.trim(),
-      variants: (p.variants ?? []).map((v) => v.trim()).filter(Boolean),
-      tags: p.tags,
-      rationale: p.rationale,
-      mediaPaths: item.filePath ? [item.filePath] : undefined,
-      createdAt: now,
-    }));
+
+  for (const group of groups) {
+    const opts: LlmOptions = {
+      baseUrl: group.llm.baseUrl,
+      apiKey: group.llm.apiKey ?? "",
+      model: group.llm.model,
+      temperature: 0.8,
+      provider: group.llm.provider,
+      speed: group.llm.speed,
+      // Proveedor gratuito anónimo (sin key): 1 intento y timeout amplio — el
+      // auto-routing gratuito tarda ~90s en generar el JSON de todos los canales.
+      ...(group.llm.apiKey ? {} : { timeoutMs: 180_000 }),
+    };
+    try {
+      const raw = await chat(
+        opts,
+        [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userPrompt(item, group.channels) },
+        ],
+        group.llm.apiKey ? 3 : 1,
+      );
+      const parsed = extractJson<{ posts: LlmPost[] }>(raw);
+      const posts = parsed.posts.filter((p) => (group.channels as string[]).includes(p.channel));
+      if (posts.length === 0) throw new Error("la IA no devolvió posts para estos canales");
+      for (const p of posts) drafts.push(llmPostToDraft(item, p, now));
+    } catch (err) {
+      console.warn(
+        `  ⚠️  LLM (${group.llm.provider}:${group.llm.model}) falló para [${group.channels.join(", ")}] ` +
+          `(${err instanceof Error ? err.message : err}). Usando plantillas para ese grupo.`,
+      );
+      drafts.push(...generateWithTemplates(item, group.channels));
+    }
+  }
+  return drafts;
+}
+
+function llmPostToDraft(item: ContentItem, p: LlmPost, now: string): Draft {
+  return {
+    id: `post-${item.id}-${p.channel}`,
+    contentItemId: item.id,
+    channel: p.channel as ChannelId,
+    text: p.text.trim(),
+    variants: (p.variants ?? []).map((v) => v.trim()).filter(Boolean),
+    tags: p.tags,
+    rationale: p.rationale,
+    mediaPaths: item.filePath ? [item.filePath] : undefined,
+    createdAt: now,
+  };
 }
 
 /** Generador de respaldo sin LLM: plantillas de calidad para cada plataforma.

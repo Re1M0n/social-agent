@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ChannelConfig, ChannelId, ContentItem } from "./types.js";
 import { CHANNELS } from "./types.js";
+import { loadChannelLlm, loadConnectors } from "./uiconfig.js";
 
 /** Carga .env manualmente (sin dependencias externas). */
 export function loadEnvFile(root = process.cwd()): void {
@@ -34,6 +35,30 @@ export type LocalLlmMode = "auto" | "on" | "off";
  *  - rendimiento: máxima velocidad (contexto amplio, modelo grande, siempre cargado). */
 export type LlmSpeed = "ahorro" | "equilibrado" | "rendimiento";
 
+/** Normaliza un valor de LLM_SPEED (o per-canal) a un modo válido. */
+export function parseLlmSpeed(raw: string | undefined): LlmSpeed {
+  const v = (raw ?? "equilibrado").toLowerCase();
+  if (v === "ahorro" || v === "eco") return "ahorro";
+  if (v === "rendimiento" || v === "turbo" || v === "fast") return "rendimiento";
+  return "equilibrado";
+}
+
+/** IA por canal: cada plataforma puede usar su propia IA en vez de la global. */
+export type ChannelLlmSource = "default" | "local" | "remote" | "cloud";
+
+export interface ChannelLlmConfig {
+  /** "default" = usa la IA global de la config. */
+  source: ChannelLlmSource;
+  /** API estilo OpenAI (local/cloud): endpoint concreto (p. ej. http://host:11434/v1). */
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
+  speed?: LlmSpeed;
+  /** Máquina remota con Ollama (Qwen): host sin /v1 (p. ej. http://192.168.1.50:11434). */
+  ollamaBaseUrl?: string;
+  ollamaModel?: string;
+}
+
 export interface AgentConfig {
   root: string;
   contentDir: string;
@@ -57,6 +82,8 @@ export interface AgentConfig {
     localLlm: LocalLlmMode;
     /** Selector de potencia/velocidad (LLM_SPEED): ahorro | equilibrado | rendimiento. */
     speed: LlmSpeed;
+    /** IA por canal: conectores globales del panel (data/ui-config.json) resueltos. */
+    channels: Partial<Record<ChannelId, ChannelLlmConfig>>;
   };
   channels: Record<ChannelId, ChannelConfig>;
 }
@@ -113,13 +140,30 @@ export function loadConfig(root = process.cwd()): AgentConfig {
         : "auto";
 
   // Selector de potencia/velocidad (LLM_SPEED): ahorro | equilibrado | rendimiento.
-  const speedRaw = (process.env.LLM_SPEED ?? "equilibrado").toLowerCase();
-  const speed: LlmSpeed =
-    speedRaw === "ahorro" || speedRaw === "eco"
-      ? "ahorro"
-      : speedRaw === "rendimiento" || speedRaw === "turbo" || speedRaw === "fast"
-        ? "rendimiento"
-        : "equilibrado";
+  const speed: LlmSpeed = parseLlmSpeed(process.env.LLM_SPEED);
+
+  // IA por canal: cada plataforma puede apuntar a un CONECTOR de IA definido
+  // en el panel (data/ui-config.json, secciones connectors + channelLlm).
+  // Sin asignación → la IA global. Se resuelve aquí para que el CLI
+  // (generate, serve, llm:check…) use lo mismo que el panel.
+  const connectors = loadConnectors(root);
+  const channelAssign = loadChannelLlm(root);
+  const channelLlm: Partial<Record<ChannelId, ChannelLlmConfig>> = {};
+  for (const id of CHANNELS) {
+    const cid = channelAssign[id];
+    if (!cid) continue;
+    const conn = connectors[cid];
+    if (!conn) continue;
+    channelLlm[id] = {
+      source: conn.source,
+      baseUrl: conn.baseUrl,
+      apiKey: conn.apiKey,
+      model: conn.model,
+      speed: conn.speed ? parseLlmSpeed(conn.speed) : undefined,
+      ollamaBaseUrl: conn.ollamaBaseUrl,
+      ollamaModel: conn.ollamaModel,
+    };
+  }
 
   return {
     root,
@@ -142,6 +186,7 @@ export function loadConfig(root = process.cwd()): AgentConfig {
       enabled,
       localLlm,
       speed,
+      channels: channelLlm,
     },
     channels,
   };

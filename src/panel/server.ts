@@ -12,7 +12,7 @@ import { applyLocalLlm, chat } from "../llm.js";
 import { CHANNEL_LIMITS, publishSingle, scheduleDrafts, scheduleSingle } from "../publisher.js";
 import { Store } from "../storage.js";
 import type { ChannelId } from "../types.js";
-import { applyUiConfig, loadUiConfig, saveUiConfig, uiConfigFile, UI_CONFIG_KEYS, type UiConfigVars } from "../uiconfig.js";
+import { applyUiConfig, loadChannelLlm, loadConnectors, loadUiConfig, saveChannelLlm, saveConnectors, saveUiConfig, uiConfigFile, UI_CONFIG_KEYS, type ConnectorConfig, type UiConfigVars } from "../uiconfig.js";
 
 /** Límite de subida de media (300 MB: sobra para fotos y la mayoría de vídeos). */
 const MAX_UPLOAD_BYTES = 300 * 1024 * 1024;
@@ -336,15 +336,40 @@ async function handleApi(
     return sendJson(res, 200, configView(config, loadUiConfig(config.root)));
   }
 
+  // Ver/descargar el .env de la raíz del proyecto (panel local: solo 127.0.0.1).
+  if (method === "GET" && pathname === "/api/config/env") {
+    const envFile = join(config.root, ".env");
+    if (!existsSync(envFile) || !statSync(envFile).isFile()) {
+      return sendJson(res, 404, { error: "No hay .env en la raíz del proyecto." });
+    }
+    const url2 = new URL(req.url ?? "/", "http://localhost");
+    const download = url2.searchParams.get("download") === "1";
+    res.writeHead(200, {
+      "Content-Type": "text/plain; charset=utf-8",
+      ...(download ? { "Content-Disposition": 'attachment; filename=".env"' } : {}),
+      "Cache-Control": "no-store",
+    });
+    res.end(readFileSync(envFile));
+    return;
+  }
+
   if (method === "POST" && pathname === "/api/config") {
-    // Guardar las variables de IA elegidas en el panel (data/ui-config.json),
-    // recargar la config (con detección de IA local) y aplicarla en vivo.
+    // Guardar la config elegida en el panel (data/ui-config.json): variables
+    // planas de IA/publicación/canales + conectores globales + asignación por
+    // canal. Se recarga la config (con detección de IA local) y se aplica en vivo.
     const vars: UiConfigVars = {};
     for (const k of UI_CONFIG_KEYS) {
       const v = json[k];
       if (typeof v === "string") vars[k] = v;
     }
     saveUiConfig(config.root, vars);
+    // Conectores de IA (globales) y qué conector usa cada canal.
+    if (Array.isArray(json.connectors)) {
+      saveConnectors(config.root, json.connectors as ConnectorConfig[]);
+    }
+    if (json.channelLlm && typeof json.channelLlm === "object") {
+      saveChannelLlm(config.root, json.channelLlm as Partial<Record<ChannelId, string>>);
+    }
     applyUiConfig(config.root, true);
     const fresh = loadConfig(config.root);
     await applyLocalLlm(fresh, () => {}); // silencioso: el panel ya muestra el resultado
@@ -428,6 +453,8 @@ function configView(config: AgentConfig, saved: UiConfigVars): Record<string, un
   const val = (k: keyof UiConfigVars): string => saved[k] ?? env[k] ?? "";
   // Primer arranque: no hay config guardada por el panel ni IA elegida a mano.
   const firstInstall = !existsSync(uiConfigFile(config.root)) && !env.LLM_API_KEY && !env.OLLAMA_BASE_URL;
+  const connectors = Object.values(loadConnectors(config.root));
+  const channelAssign = loadChannelLlm(config.root);
   return {
     llm: {
       provider: llm.provider,
@@ -454,6 +481,11 @@ function configView(config: AgentConfig, saved: UiConfigVars): Record<string, un
       dryRun: config.dryRun,
       autoPublish: config.autoPublish,
     },
+    env: {
+      path: join(config.root, ".env"),
+      exists: existsSync(join(config.root, ".env")),
+    },
+    connectors,
     channels: (Object.keys(config.channels) as ChannelId[]).map((id) => {
       const c = config.channels[id];
       return {
@@ -462,6 +494,8 @@ function configView(config: AgentConfig, saved: UiConfigVars): Record<string, un
         enabled: c.enabled,
         limit: CHANNEL_LIMITS[id],
         hasCredentials: Object.values(c.credentials).some(Boolean),
+        // Conector de IA asignado a este canal ("" = usa la IA global).
+        llm: { connector: channelAssign[id] ?? "" },
       };
     }),
   };

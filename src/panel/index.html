@@ -110,6 +110,21 @@
   .cfg-result .ok, .cfg-result .err { border-radius: 8px; padding: 8px 12px; font-size: 13px; }
   .cfg-result .ok { background: rgba(62,207,142,.1); color: var(--ok); }
   .cfg-result .err { background: rgba(255,93,93,.1); color: var(--err); }
+  .cfg-link { display: inline-block; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card2); color: var(--text); text-decoration: none; font-size: 13px; }
+  .cfg-link:hover { filter: brightness(1.2); }
+  .cfg-path { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; background: #12151c; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; word-break: break-all; }
+  .cfg-ch-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--card2); }
+  .cfg-ch-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .cfg-ch-head .t { font-weight: 600; font-size: 13px; }
+  .cfg-ch-head select { background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font: inherit; }
+  .cfg-connector { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--card2); }
+  .cfg-conn-name { background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font: inherit; font-weight: 600; min-width: 170px; }
+  .cfg-del { background: none; border: none; font-size: 15px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+  .cfg-del:hover { background: rgba(255,93,93,.15); }
+  .cfg-cll-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-top: 10px; }
+  .cfg-cll-fields .cfg-field { margin: 0; }
+  .cfg-cll-fields input { padding: 5px 8px; font-size: 12px; }
+  .cfg-cll-fields select { background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 12px; }
   #wizardOverlay { position: fixed; inset: 0; background: rgba(10,12,16,.85); backdrop-filter: blur(3px); display: grid; place-items: center; z-index: 50; padding: 20px; overflow: auto; }
   #wizardCard { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 22px; max-width: 720px; width: 100%; max-height: 92vh; overflow: auto; }
   #wizardCard h2 { font-size: 18px; margin-bottom: 6px; }
@@ -169,6 +184,8 @@ let cfgLoading = false;
 let cfgSource = "auto";
 let cfgSpeed = "equilibrado";
 let cfgChannels = {}; // estado habilitado/deshabilitado de cada canal (página ⚙️)
+let cfgChannelLlm = {}; // IA por canal: id del conector asignado ("" = IA global)
+let cfgConnectors = null; // conectores de IA definidos en el panel (globales)
 let cfgPublication = { dryRun: true, autoPublish: false }; // modo de publicación
 let cfgDraft = {}; // valores escritos en el formulario sin guardar aún
 let wizardDone = false;
@@ -335,8 +352,29 @@ function demoConfig() {
     firstInstall: false,
     form: { LLM_API_KEY: "", LLM_BASE_URL: "https://api.openai.com/v1", LLM_MODEL: "gpt-4o-mini", OLLAMA_BASE_URL: "", OLLAMA_MODEL: "", LLM_LOCAL: "auto", LLM_SPEED: "equilibrado", DRY_RUN: "1", AUTO_PUBLISH: "0" },
     publication: { dryRun: true, autoPublish: false },
-    channels: Object.entries(PLATFORM_META).map(([id, m]) => ({ id, name: m.name, enabled: true, limit: DEMO_LIMITS[id], hasCredentials: id === "mastodon" || id === "bluesky" })),
+    env: { path: "<proyecto>/.env", exists: false },
+    connectors: [
+      { id: "conn-demo", name: "Groq demo", source: "cloud", baseUrl: "https://api.groq.com/openai/v1", apiKey: "", model: "llama-3.3-70b-versatile", speed: "equilibrado", ollamaBaseUrl: "", ollamaModel: "" },
+    ],
+    channels: Object.entries(PLATFORM_META).map(([id, m]) => ({ id, name: m.name, enabled: true, limit: DEMO_LIMITS[id], hasCredentials: id === "mastodon" || id === "bluesky", llm: { connector: "" } })),
   };
+}
+
+/** Copia la config del servidor a los borradores de la página ⚙️ Config. */
+function syncCfgDrafts() {
+  if (!cfg) return;
+  cfgSource = cfg.source || "auto";
+  cfgSpeed = (cfg.llm && cfg.llm.speed) || "equilibrado";
+  cfgChannels = {};
+  cfgChannelLlm = {};
+  cfgConnectors = (cfg.connectors || []).map((c) => ({ ...c }));
+  (cfg.channels || []).forEach((c) => {
+    cfgChannels[c.id] = c.enabled;
+    cfgChannelLlm[c.id] = (c.llm && c.llm.connector) || "";
+  });
+  if (cfg.publication) {
+    cfgPublication = { dryRun: !!cfg.publication.dryRun, autoPublish: !!cfg.publication.autoPublish };
+  }
 }
 
 function enableDemo() {
@@ -344,8 +382,7 @@ function enableDemo() {
   serverError = null;
   state = demoStore.state;
   cfg = demoConfig();
-  cfgSource = "auto";
-  cfgSpeed = "equilibrado";
+  syncCfgDrafts();
   render();
 }
 
@@ -355,6 +392,8 @@ function switchMode(m) {
     demoMode = true;
     serverError = null;
     state = demoStore.state;
+    cfg = demoConfig();
+    syncCfgDrafts();
     render();
   } else {
     demoMode = false;
@@ -434,10 +473,7 @@ async function fetchConfig() {
     const res = await fetch("/api/config", { headers: { "Content-Type": "application/json" } });
     if (!res.ok) throw new Error("HTTP " + res.status);
     cfg = await res.json();
-    cfgSource = cfg.source || "auto";
-    cfgSpeed = cfg.llm && cfg.llm.speed || "equilibrado";
-    cfgChannels = {};
-    (cfg.channels || []).forEach((c) => { cfgChannels[c.id] = c.enabled; });
+    syncCfgDrafts();
     if (cfg.publication) {
       cfgPublication = { dryRun: !!cfg.publication.dryRun, autoPublish: !!cfg.publication.autoPublish };
     }
@@ -963,8 +999,155 @@ function renderConfig() {
         </div>
       </div>
       ${configFormHtml()}
+      ${envCardHtml()}
+      ${connectorsFormHtml()}
+      ${channelLlmFormHtml()}
       ${publicationFormHtml()}
       ${channelsFormHtml()}
+    </div>`;
+}
+
+/* ── Conectores de IA (globales) y asignación por canal ── */
+
+const CONNECTOR_SOURCES = [
+  { id: "local", t: "🤖 Local (Ollama/LM Studio)" },
+  { id: "remote", t: "🖥️ Otra máquina con Ollama (Qwen)" },
+  { id: "cloud", t: "☁️ API en la nube" },
+];
+const CONNECTOR_LABELS = { local: "🤖 Local", remote: "🖥️ Qwen remoto", cloud: "☁️ API en la nube" };
+const CONNECTOR_SPEEDS = [
+  { id: "ahorro", t: "🐢 Ahorro" },
+  { id: "equilibrado", t: "⚖️ Equilibrado" },
+  { id: "rendimiento", t: "⚡ Rendimiento" },
+];
+
+/** Tarjeta 🔌 Conectores: define aquí las IAs que podrás asignar a cada canal. */
+function connectorsFormHtml() {
+  const list = cfgConnectors || [];
+  return `
+    <div class="cfg-card">
+      <h3>🔌 Conectores de IA</h3>
+      <p class="meta">Define aquí las IAs (local, tu máquina con Qwen, APIs en la nube…) y asígnalas después a cada canal. Recuerda pulsar 💾 Guardar.</p>
+      ${list.length === 0 ? `<p class="meta">Aún no hay conectores: añade uno o usa la IA global de arriba para todo.</p>` : ""}
+      ${list.map((c, i) => connectorCardHtml(c, i)).join("")}
+      <div class="actions" style="margin-top:10px">
+        <button onclick="addConnector()">➕ Añadir conector</button>
+      </div>
+    </div>`;
+}
+
+function connectorCardHtml(c, i) {
+  const f = (label, field, ph, type) => `
+    <div class="cfg-field"><label>${label}</label>
+      <input id="cfgconn_${i}_${field}" type="${type || "text"}" value="${esc(c[field] || "")}" placeholder="${ph || ""}"></div>`;
+  const speed = `
+    <div class="cfg-field"><label>Velocidad</label>
+      <select id="cfgconn_${i}_speed" onchange="setConnectorField(${i}, 'speed', this.value)">
+        ${CONNECTOR_SPEEDS.map((s) => `<option value="${s.id}" ${s.id === (c.speed || "equilibrado") ? "selected" : ""}>${s.t}</option>`).join("")}
+      </select></div>`;
+  const sourceFields =
+    c.source === "local"
+      ? f("Endpoint", "baseUrl", "http://localhost:11434/v1") + f("Modelo", "model", "qwen2.5:7b") + speed
+      : c.source === "remote"
+        ? f("Host Qwen", "ollamaBaseUrl", "http://192.168.1.50:11434") + f("Modelo Qwen", "ollamaModel", "qwen2.5:7b") + speed
+        : f("Clave API", "apiKey", "sk-…", "password") + f("Endpoint", "baseUrl", "https://api.openai.com/v1") + f("Modelo", "model", "gpt-4o-mini") + speed;
+  return `
+    <div class="cfg-connector">
+      <div class="cfg-ch-head">
+        <input id="cfgconn_${i}_name" class="cfg-conn-name" value="${esc(c.name || "")}" placeholder="Nombre (p. ej. Qwen de casa)">
+        <select onchange="setConnectorField(${i}, 'source', this.value)">
+          ${CONNECTOR_SOURCES.map((s) => `<option value="${s.id}" ${s.id === c.source ? "selected" : ""}>${s.t}</option>`).join("")}
+        </select>
+        <button class="cfg-del" onclick="removeConnector('${esc(c.id)}')" title="Eliminar conector">🗑️</button>
+      </div>
+      <div class="cfg-cll-fields">${sourceFields}</div>
+    </div>`;
+}
+
+function setConnectorField(i, field, value) {
+  const c = (cfgConnectors || [])[i];
+  if (!c) return;
+  c[field] = value;
+  if (field === "source") renderConfig(); // cambia los campos visibles
+}
+
+function addConnector() {
+  cfgConnectors = cfgConnectors || [];
+  cfgConnectors.push({
+    id: "conn-" + Date.now().toString(36),
+    name: "Nuevo conector",
+    source: "remote",
+    baseUrl: "",
+    apiKey: "",
+    model: "",
+    speed: "equilibrado",
+    ollamaBaseUrl: "http://192.168.1.50:11434",
+    ollamaModel: "",
+  });
+  renderConfig();
+}
+
+function removeConnector(id) {
+  cfgConnectors = (cfgConnectors || []).filter((c) => c.id !== id);
+  // Quitar la asignación de los canales que apuntaban a este conector.
+  Object.keys(cfgChannelLlm || {}).forEach((ch) => {
+    if (cfgChannelLlm[ch] === id) cfgChannelLlm[ch] = "";
+  });
+  renderConfig();
+}
+
+/** Tarjeta 🧠 IA por canal: cada plataforma elige un conector (o la IA global). */
+function channelLlmFormHtml() {
+  const chans = (cfg && cfg.channels) || [];
+  const conns = cfgConnectors || [];
+  return `
+    <div class="cfg-card">
+      <h3>🧠 IA por canal</h3>
+      <p class="meta">Cada plataforma usa el conector que elijas; “Por defecto” usa la IA global de arriba. Recuerda pulsar 💾 Guardar.</p>
+      ${chans.map((c) => `
+        <div class="cfg-ch-row">
+          <div class="cfg-ch-head">
+            <span class="t">${PLATFORM_META[c.id] ? PLATFORM_META[c.id].emoji + " " : ""}${esc(c.name)}</span>
+            <select onchange="setChannelLlm('${c.id}', this.value)">
+              <option value="" ${(cfgChannelLlm[c.id] || "") === "" ? "selected" : ""}>Por defecto (global)</option>
+              ${conns.map((n) => `<option value="${esc(n.id)}" ${cfgChannelLlm[c.id] === n.id ? "selected" : ""}>${esc(n.name || n.id)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="meta" style="margin-top:8px">${channelLlmSummary(c.id, conns)}</div>
+        </div>`).join("")}
+    </div>`;
+}
+
+function channelLlmSummary(id, conns) {
+  const cid = cfgChannelLlm[id] || "";
+  if (!cid) return `Usa la IA global: ${esc(cfg.llm.provider)} · ${esc(cfg.llm.model)}`;
+  const conn = conns.find((n) => n.id === cid);
+  if (!conn) return "Conector no encontrado";
+  const bits = [`“${esc(conn.name || cid)}”`, CONNECTOR_LABELS[conn.source] || conn.source];
+  if (conn.model) bits.push(esc(conn.model));
+  if (conn.speed && conn.speed !== "equilibrado") bits.push(conn.speed);
+  return `Usa ${bits.join(" · ")}`;
+}
+
+function setChannelLlm(id, val) {
+  cfgChannelLlm[id] = val;
+  renderConfig();
+}
+
+/** Tarjeta del .env: muestra la ruta y permite abrirlo/descargarlo (panel local). */
+function envCardHtml() {
+  const env = (cfg && cfg.env) || {};
+  if (!env.path) return "";
+  return `
+    <div class="cfg-card">
+      <h3>📄 Archivo .env</h3>
+      <p class="meta">Ruta: <span class="cfg-path">${esc(env.path)}</span>${env.exists ? "" : " · no existe todavía — el panel guarda su config en <code>data/ui-config.json</code>"}</p>
+      ${env.exists ? `
+        <div class="actions" style="margin-top:10px">
+          <a class="cfg-link" href="/api/config/env" target="_blank" rel="noopener">👁️ Abrir</a>
+          <a class="cfg-link" href="/api/config/env?download=1" download=".env">⬇️ Descargar</a>
+        </div>`
+      : `<p class="meta">Crea uno copiando <code>.env.example</code> y rellena las credenciales.</p>`}
     </div>`;
 }
 
@@ -1097,15 +1280,27 @@ async function saveCfg(test) {
   Object.keys(cfgChannels).forEach((id) => {
     vars[`CHANNEL_${id.toUpperCase()}_ENABLED`] = cfgChannels[id] ? "1" : "0";
   });
+  // Conectores de IA (globales) y qué conector usa cada canal.
+  const body = { ...vars, test: !!test };
+  if (cfgConnectors !== null) {
+    body.connectors = (cfgConnectors || [])
+      .filter((c) => c && String(c.name || "").trim())
+      .map((c, i) => ({ ...c, id: c.id || "conn-" + Date.now().toString(36) + "-" + i, name: String(c.name).trim() }));
+  }
+  if (cfgChannelLlm !== null) {
+    const channelLlm = {};
+    (cfg.channels || []).forEach((c) => {
+      const cid = cfgChannelLlm[c.id] || "";
+      if (cid) channelLlm[c.id] = cid;
+    });
+    body.channelLlm = channelLlm;
+  }
   const box = document.getElementById("cfgResult");
   if (box) box.innerHTML = `<span class="meta">Guardando…</span>`;
   try {
-    const data = await api("/api/config", { method: "POST", body: JSON.stringify({ ...vars, test: !!test }) });
+    const data = await api("/api/config", { method: "POST", body: JSON.stringify(body) });
     cfg = data.config;
-    cfgSource = data.config.source;
-    cfgSpeed = data.config.llm.speed;
-    cfgChannels = {};
-    (data.config.channels || []).forEach((c) => { cfgChannels[c.id] = c.enabled; });
+    syncCfgDrafts();
     if (data.config.publication) {
       cfgPublication = { dryRun: !!data.config.publication.dryRun, autoPublish: !!data.config.publication.autoPublish };
       // Reflejar el nuevo modo en la cabecera (badge DRY-RUN/EN VIVO) al instante.
@@ -1166,7 +1361,15 @@ function hideWizard() {
 
 // Mantener los valores escritos en el formulario de config entre re-renders.
 document.addEventListener("input", (e) => {
-  if (e.target.id && e.target.id.startsWith("cfg")) cfgDraft[e.target.id] = e.target.value;
+  const id = e.target.id || "";
+  // Campos de conectores: cfgconn_<índice>_<campo> (se guardan en el borrador).
+  const m = id.match(/^cfgconn_(\d+)_(.+)$/);
+  if (m) {
+    const c = (cfgConnectors || [])[Number(m[1])];
+    if (c) c[m[2]] = e.target.value;
+    return;
+  }
+  if (id.startsWith("cfg")) cfgDraft[id] = e.target.value;
 });
 
 refresh();

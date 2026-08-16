@@ -33,6 +33,7 @@ export function testConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
       // Tests herméticos: nunca sondear la red en busca de IA local.
       localLlm: "off",
       speed: "equilibrado",
+      channels: {},
     },
     channels,
     ...overrides,

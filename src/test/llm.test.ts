@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
-import { cpus } from "node:os";
+import { tmpdir, cpus } from "node:os";
+import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
+import { loadConfig } from "../config.js";
 import {
   chatRequest,
   detectLocalLlm,
+  groupChannelsByLlm,
+  llmForChannel,
   modelSize,
   ollamaChatRequest,
   pickModel,
   SPEED_SETTINGS,
   type LlmServerCandidate,
 } from "../llm.js";
+import { testConfig } from "./helpers.js";
 
 const MSG = [{ role: "user" as const, content: "hola" }];
 
@@ -66,6 +72,113 @@ describe("pickModel", () => {
 
   it("equilibrado mantiene el orden por familia/versión sin sesgo de tamaño", () => {
     assert.equal(pickModel(["qwen2.5:7b", "qwen2.5:14b"], "equilibrado"), "qwen2.5:14b");
+  });
+});
+
+describe("IA por canal (llmForChannel / groupChannelsByLlm)", () => {
+  const base = () => testConfig({});
+
+  it("sin override usa la IA global", () => {
+    const cfg = base();
+    const llm = llmForChannel(cfg, "mastodon");
+    assert.equal(llm.provider, cfg.llm.provider);
+    assert.equal(llm.model, cfg.llm.model);
+    assert.equal(llm.speed, cfg.llm.speed);
+  });
+
+  it("cloud por canal: usa su clave/endpoint/modelo", () => {
+    const cfg = base();
+    cfg.llm.channels.mastodon = {
+      source: "cloud",
+      baseUrl: "https://api.groq.com/openai/v1",
+      apiKey: "gsk-test",
+      model: "llama-3.3-70b",
+      speed: "rendimiento",
+    };
+    const llm = llmForChannel(cfg, "mastodon");
+    assert.equal(llm.provider, "openai");
+    assert.equal(llm.baseUrl, "https://api.groq.com/openai/v1");
+    assert.equal(llm.apiKey, "gsk-test");
+    assert.equal(llm.model, "llama-3.3-70b");
+    assert.equal(llm.speed, "rendimiento");
+    // Otro canal sin override sigue con la global.
+    assert.equal(llmForChannel(cfg, "bluesky").provider, cfg.llm.provider);
+  });
+
+  it("remote por canal: apunta a la máquina con Qwen (host + /v1)", () => {
+    const cfg = base();
+    cfg.llm.channels.linkedin = { source: "remote", ollamaBaseUrl: "http://192.168.1.50:11434", ollamaModel: "qwen2.5:32b", speed: "ahorro" };
+    const llm = llmForChannel(cfg, "linkedin");
+    assert.equal(llm.provider, "ollama");
+    assert.equal(llm.baseUrl, "http://192.168.1.50:11434/v1");
+    assert.equal(llm.model, "qwen2.5:32b");
+    assert.equal(llm.speed, "ahorro");
+  });
+
+  it("local por canal con IA global en la nube: usa localhost", () => {
+    const cfg = base();
+    cfg.llm.channels.instagram = { source: "local", model: "qwen2.5:7b" };
+    const llm = llmForChannel(cfg, "instagram");
+    assert.equal(llm.provider, "ollama");
+    assert.equal(llm.baseUrl, "http://localhost:11434/v1");
+    assert.equal(llm.model, "qwen2.5:7b");
+  });
+
+  it("agrupa canales por IA efectiva: los del mismo grupo comparten llamada", () => {
+    const cfg = base();
+    cfg.llm.channels.mastodon = { source: "cloud", apiKey: "k1", baseUrl: "https://x/v1", model: "m1" };
+    cfg.llm.channels.bluesky = { source: "cloud", apiKey: "k1", baseUrl: "https://x/v1", model: "m1" };
+    cfg.llm.channels.twitter = { source: "cloud", apiKey: "k2", baseUrl: "https://x/v1", model: "m1" };
+    const groups = groupChannelsByLlm(cfg, ["mastodon", "bluesky", "twitter", "linkedin"]);
+    assert.equal(groups.length, 3, `grupos: ${JSON.stringify(groups.map((g) => g.channels))}`);
+    const masto = groups.find((g) => g.channels.includes("mastodon"));
+    assert.ok(masto!.channels.includes("bluesky"), "mastodon y bluesky comparten IA → misma llamada");
+    const tw = groups.find((g) => g.channels.includes("twitter"));
+    assert.equal(tw!.channels.length, 1, "twitter tiene IA distinta → llamada aparte");
+  });
+});
+
+describe("conectores globales (data/ui-config.json → config.llm.channels)", () => {
+  let dir = "";
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), "sg-conn-"));
+    mkdirSync(join(dir, "data"), { recursive: true });
+    writeFileSync(
+      join(dir, "data", "ui-config.json"),
+      JSON.stringify({
+        connectors: {
+          c1: { name: "Groq", source: "cloud", baseUrl: "https://api.groq.com/openai/v1", apiKey: "k-test", model: "llama-3.3-70b", speed: "rendimiento" },
+          c2: { name: "Qwen de casa", source: "remote", ollamaBaseUrl: "http://192.168.1.50:11434", ollamaModel: "qwen2.5:32b", speed: "ahorro" },
+        },
+        channelLlm: { mastodon: "c1", linkedin: "c2" },
+      }),
+    );
+  });
+  after(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("loadConfig resuelve la IA de cada canal desde su conector asignado", () => {
+    const cfg = loadConfig(dir);
+    const masto = cfg.llm.channels.mastodon;
+    assert.equal(masto?.source, "cloud");
+    assert.equal(masto?.apiKey, "k-test");
+    assert.equal(masto?.model, "llama-3.3-70b");
+    assert.equal(masto?.speed, "rendimiento");
+    const li = cfg.llm.channels.linkedin;
+    assert.equal(li?.source, "remote");
+    assert.equal(li?.ollamaBaseUrl, "http://192.168.1.50:11434");
+    assert.equal(li?.ollamaModel, "qwen2.5:32b");
+    assert.equal(cfg.llm.channels.bluesky, undefined, "sin asignación → IA global");
+    // llmForChannel lo usa directamente para generar.
+    assert.equal(llmForChannel(cfg, "mastodon").model, "llama-3.3-70b");
+    assert.equal(llmForChannel(cfg, "linkedin").provider, "ollama");
+    assert.equal(llmForChannel(cfg, "linkedin").baseUrl, "http://192.168.1.50:11434/v1");
+    assert.equal(llmForChannel(cfg, "linkedin").speed, "ahorro");
+  });
+
+  it("un conector inexistente o sin asignación cae a la IA global", () => {
+    const cfg = loadConfig(dir);
+    assert.equal(cfg.llm.channels.bluesky, undefined);
+    assert.equal(llmForChannel(cfg, "bluesky").provider, cfg.llm.provider);
   });
 });
 

@@ -5,7 +5,8 @@
  */
 
 import { cpus } from "node:os";
-import type { AgentConfig, LlmSpeed } from "./config.js";
+import type { AgentConfig, ChannelLlmSource, LlmSpeed } from "./config.js";
+import type { ChannelId } from "./types.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -23,6 +24,75 @@ export interface LlmOptions {
   provider?: string;
   /** Selector de potencia/velocidad (LLM_SPEED). */
   speed?: LlmSpeed;
+}
+
+/** IA efectiva (resuelta) para generar: la global o el override de un canal. */
+export interface EffectiveLlm {
+  provider: string;
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+  speed: LlmSpeed;
+}
+
+/** Resuelve la IA efectiva de un canal: override por canal o la global.
+ *  - "default": la IA global de la config.
+ *  - "local": Ollama/LM Studio (usa la detección global si es local, si no localhost).
+ *  - "remote": otra máquina con Ollama (Qwen) vía su OLLAMA_URL.
+ *  - "cloud": API en la nube (OpenAI/OpenRouter/Groq…) con clave. */
+export function llmForChannel(config: AgentConfig, channel: ChannelId): EffectiveLlm {
+  const g = config.llm;
+  const base: EffectiveLlm = { provider: g.provider, baseUrl: g.baseUrl, apiKey: g.apiKey, model: g.model, speed: g.speed };
+  const c = g.channels[channel];
+  if (!c || c.source === "default") return base;
+  const speed = c.speed ?? g.speed;
+  const localHost = (process.env.OLLAMA_BASE_URL || "http://localhost:11434").replace(/\/+$/, "");
+  switch (c.source as ChannelLlmSource) {
+    case "cloud":
+      return {
+        provider: c.apiKey ? "openai" : "kilo-anon",
+        baseUrl: c.baseUrl || (c.apiKey ? "https://api.openai.com/v1" : base.baseUrl),
+        apiKey: c.apiKey || g.apiKey,
+        model: c.model || g.model,
+        speed,
+      };
+    case "remote":
+      return {
+        provider: "ollama",
+        baseUrl: `${(c.ollamaBaseUrl || localHost).replace(/\/+$/, "")}/v1`,
+        apiKey: "",
+        model: c.ollamaModel || c.model || g.model,
+        speed,
+      };
+    case "local":
+      if (g.provider === "ollama" || g.provider === "lmstudio") {
+        return { provider: g.provider, baseUrl: c.baseUrl || g.baseUrl, apiKey: g.apiKey, model: c.model || g.model, speed };
+      }
+      return { provider: "ollama", baseUrl: c.baseUrl || `${localHost}/v1`, apiKey: "", model: c.model || g.model, speed };
+    default:
+      return base;
+  }
+}
+
+function llmKey(llm: EffectiveLlm): string {
+  return [llm.provider, llm.baseUrl, llm.model, llm.apiKey ?? "", llm.speed].join("|");
+}
+
+/** Agrupa los canales por su IA efectiva: los que comparten IA van en una misma
+ *  llamada al LLM; cada grupo con IA distinta se genera por separado. */
+export function groupChannelsByLlm(
+  config: AgentConfig,
+  channels: ChannelId[],
+): { llm: EffectiveLlm; channels: ChannelId[] }[] {
+  const groups = new Map<string, { llm: EffectiveLlm; channels: ChannelId[] }>();
+  for (const ch of channels) {
+    const llm = llmForChannel(config, ch);
+    const k = llmKey(llm);
+    const existing = groups.get(k);
+    if (existing) existing.channels.push(ch);
+    else groups.set(k, { llm, channels: [ch] });
+  }
+  return [...groups.values()];
 }
 
 /** Ajustes por modo de potencia/velocidad.

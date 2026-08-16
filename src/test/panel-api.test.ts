@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "node:http";
@@ -476,5 +476,72 @@ describe("Panel web: API de revisión y aprobación", () => {
     const state = await (await fetch(`${base}/api/state`)).json();
     assert.equal(state.dryRun, false);
     assert.equal(state.autoPublish, true);
+  });
+
+  it("GET /api/config/env muestra la ruta del .env y permite abrirlo/descargarlo", async () => {
+    const envFile = join(dir, ".env");
+    writeFileSync(envFile, "MASTODON_URL=https://ejemplo.test\nMASTODON_TOKEN=secreto-local\n");
+    try {
+      // GET /api/config anuncia la ruta y si existe.
+      const cfg = await (await fetch(`${base}/api/config`)).json();
+      assert.equal(cfg.env.exists, true);
+      assert.ok(cfg.env.path.endsWith(".env"), `ruta del .env: ${cfg.env.path}`);
+      // Abrir: contenido en texto plano.
+      const open = await fetch(`${base}/api/config/env`);
+      assert.equal(open.status, 200);
+      assert.match(open.headers.get("content-type") || "", /text\/plain/);
+      assert.match(await open.text(), /MASTODON_URL=https:\/\/ejemplo\.test/);
+      // Descargar: forzar attachment.
+      const down = await fetch(`${base}/api/config/env?download=1`);
+      assert.match(down.headers.get("content-disposition") || "", /attachment/);
+    } finally {
+      rmSync(envFile);
+    }
+    // Sin archivo → 404 claro.
+    const missing = await fetch(`${base}/api/config/env`);
+    assert.equal(missing.status, 404);
+    const cfg2 = await (await fetch(`${base}/api/config`)).json();
+    assert.equal(cfg2.env.exists, false);
+  });
+
+  it("POST /api/config guarda conectores de IA y su asignación por canal (sin tocar el .env)", async () => {
+    const res = await fetch(`${base}/api/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        LLM_API_KEY: "", LLM_BASE_URL: "", LLM_MODEL: "",
+        LLM_LOCAL: "off", LLM_SPEED: "", OLLAMA_BASE_URL: "", OLLAMA_MODEL: "",
+        LLM_FREE_FALLBACK: "", LLM_ENABLED: "", DRY_RUN: "", AUTO_PUBLISH: "",
+        CHANNEL_MASTODON_ENABLED: "", CHANNEL_BLUESKY_ENABLED: "", CHANNEL_TWITTER_ENABLED: "",
+        CHANNEL_LINKEDIN_ENABLED: "", CHANNEL_INSTAGRAM_ENABLED: "", CHANNEL_FACEBOOK_ENABLED: "", CHANNEL_TIKTOK_ENABLED: "",
+        connectors: [
+          { id: "c1", name: "Groq", source: "cloud", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk-test", model: "llama-3.3-70b", speed: "rendimiento", ollamaBaseUrl: "", ollamaModel: "" },
+          { id: "c2", name: "Qwen de casa", source: "remote", baseUrl: "", apiKey: "", model: "", speed: "ahorro", ollamaBaseUrl: "http://192.168.1.50:11434", ollamaModel: "qwen2.5:32b" },
+        ],
+        channelLlm: { mastodon: "c1", linkedin: "c2" },
+      }),
+    });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    // La vista devuelve los conectores y la asignación por canal.
+    assert.equal(data.config.connectors.length, 2);
+    const find = (id: string) => data.config.channels.find((c: { id: string }) => c.id === id);
+    assert.equal(find("mastodon").llm.connector, "c1");
+    assert.equal(find("linkedin").llm.connector, "c2");
+    assert.equal(find("bluesky").llm.connector, "", "sin asignación → IA global");
+    // Persistido en ui-config.json (secciones estructuradas, no variables planas).
+    const saved = JSON.parse(readFileSync(join(dir, "data", "ui-config.json"), "utf8"));
+    assert.equal(saved.connectors.c1.source, "cloud");
+    assert.equal(saved.connectors.c1.model, "llama-3.3-70b");
+    assert.equal(saved.connectors.c2.ollamaBaseUrl, "http://192.168.1.50:11434");
+    assert.equal(saved.channelLlm.mastodon, "c1");
+    assert.equal(saved.channelLlm.linkedin, "c2");
+    assert.equal(saved.CHANNEL_MASTODON_LLM, undefined, "no usa variables planas por canal");
+    // La asignación queda aplicada en la config viva (la ve el CLI también).
+    const again = await (await fetch(`${base}/api/config`)).json();
+    const masto2 = again.channels.find((c: { id: string }) => c.id === "mastodon");
+    assert.equal(masto2.llm.connector, "c1");
+    // Nada se escribe en el .env.
+    assert.equal(existsSync(join(dir, ".env")), false, "el POST no toca el .env");
   });
 });
