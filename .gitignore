@@ -16,6 +16,9 @@ content/calendario-editorial.md
 # Entorno del agente Freebuff
 .freebuff/
 
+# Build local del sitio de GitHub Pages
+_site/
+
 # Sistema
 .DS_Store
 Thumbs.db

@@ -94,6 +94,11 @@
   Quita <code>DRY_RUN=1</code> del <code>.env</code> para publicar de verdad.
 </div>
 
+<div class="banner" id="demoBanner" hidden style="border-color:rgba(108,140,255,.4);color:#a9bdff;background:rgba(108,140,255,.1)">
+  🧪 <b>Demo estática (GitHub Pages)</b>: datos de ejemplo y acciones simuladas en tu navegador.
+  Ejecuta <code>npm run panel</code> para el panel real con tus drafts.
+</div>
+
 <div class="tabs" id="tabs"></div>
 <div id="content"></div>
 
@@ -112,12 +117,100 @@ const TAB_LABEL = { draft: "Pendientes", scheduled: "Programados", published: "P
 let state = null;
 let tab = "draft";
 
+// ── Modo demo (GitHub Pages: sin backend; datos y acciones simuladas) ──
+let demoMode = false;
+const DEMO_LIMITS = { mastodon: 500, bluesky: 300, twitter: 280, linkedin: 3000, instagram: 2200, facebook: 63206, tiktok: 2200 };
+const demoNow = Date.now();
+const DEMO_ITEMS = [
+  { id: "demo-lanzamiento", kind: "idea", title: "Demo: lanzamiento — productividad sin fricción", body: "Idea base de ejemplo para la demo.", mediaType: "text", ingestedAt: new Date(demoNow - 86400000).toISOString() },
+  { id: "demo-linkedin", kind: "idea", title: "Demo: cómo empezar en LinkedIn", body: "Idea base de ejemplo para la demo.", mediaType: "text", ingestedAt: new Date(demoNow - 43200000).toISOString() },
+];
+const DEMO_POSTS = [
+  { id: "demo-mastodon", contentItemId: "demo-lanzamiento", channel: "mastodon", status: "draft", tags: ["productividad", "lanzamiento"], createdAt: new Date(demoNow - 3600000).toISOString(),
+    text: "🚀 Lanzamiento: una app que convierte horas de organización en minutos.\n\nLa productividad no debería doler. Hoy empieza algo nuevo. #productividad #lanzamiento",
+    variants: ["🚀 Deja de perder horas: hoy lanzamos la app que organiza por ti.\n\n#productividad #lanzamiento", "¿Cuántas horas pierdes a la semana organizándote?\n\nNuestra app las convierte en minutos. #productividad #lanzamiento"],
+    rationale: "Gancho con cifra implícita + beneficio directo; A/B de gancho." },
+  { id: "demo-bluesky", contentItemId: "demo-lanzamiento", channel: "bluesky", status: "draft", tags: ["productividad"], createdAt: new Date(demoNow - 3600000).toISOString(),
+    text: "🚀 Hemos lanzado algo que nos quita horas: organización en minutos. Sin fricción. #productividad" },
+  { id: "demo-twitter", contentItemId: "demo-lanzamiento", channel: "twitter", status: "draft", tags: ["productividad"], createdAt: new Date(demoNow - 3600000).toISOString(),
+    text: "🚀 Lanzamos la app que convierte horas de organización en minutos. #productividad" },
+  { id: "demo-linkedin", contentItemId: "demo-linkedin", channel: "linkedin", status: "draft", tags: ["linkedin", "carrera"], createdAt: new Date(demoNow - 1800000).toISOString(),
+    text: "Empezar en LinkedIn da vértigo. Guía práctica: perfil completo, primer post honesto y constancia.\n\nLo que mejor funciona no es la estrategia perfecta, sino aparecer cada semana.\n\n👉 ¿Qué te frena a ti? Cuéntamelo en comentarios. #linkedin #carrera",
+    rationale: "Gancho por problema + guía práctica con CTA de conversación." },
+  { id: "demo-instagram", contentItemId: "demo-lanzamiento", channel: "instagram", status: "draft", tags: ["productividad", "lanzamiento", "nuevaapp"], createdAt: new Date(demoNow - 3600000).toISOString(),
+    text: "🚀 Menos horas, más vida.\n\nLa organización no debería ser un trabajo extra. Nueva app: arrastra, programa, publica.\n\n#productividad #lanzamiento #nuevaapp" },
+  { id: "demo-facebook", contentItemId: "demo-lanzamiento", channel: "facebook", status: "draft", tags: ["productividad"], createdAt: new Date(demoNow - 3600000).toISOString(),
+    text: "¿Cuántas horas pierdes a la semana organizándote? Hoy lanzamos la app que lo reduce a minutos. Cuéntanos qué te parece." },
+  { id: "demo-tiktok", contentItemId: "demo-lanzamiento", channel: "tiktok", status: "draft", tags: ["fyp", "productividad", "lanzamiento"], createdAt: new Date(demoNow - 3600000).toISOString(),
+    text: "POV: dejas de perder horas organizándote 😌\n\n#fyp #productividad #lanzamiento" },
+];
+const demoStore = {
+  state: {
+    dryRun: true,
+    autoPublish: false,
+    channels: Object.entries(PLATFORM_META).map(([id, m]) => ({ id, name: m.name, enabled: true, limit: DEMO_LIMITS[id] })),
+    items: DEMO_ITEMS,
+    posts: DEMO_POSTS,
+  },
+};
+
+async function demoApi(url, opts = {}) {
+  const method = (opts.method || "GET").toUpperCase();
+  const path = new URL(url, window.location.href).pathname;
+  const body = opts.body ? JSON.parse(opts.body) : {};
+  await new Promise((r) => setTimeout(r, 150)); // simular latencia de red
+  if (method === "GET" && path === "/api/state") return demoStore.state;
+  if (method === "POST" && path === "/api/posts/approve-all") {
+    let n = 0;
+    for (const p of demoStore.state.posts) {
+      if (p.status === "draft") { p.status = "scheduled"; p.scheduledFor = new Date(Date.now() + 3600000).toISOString(); n++; }
+    }
+    return { ok: true, scheduled: n };
+  }
+  const m = path.match(/^\/api\/posts\/([^/]+)\/([a-z-]+)$/);
+  if (m) {
+    const [, id, action] = m;
+    const post = demoStore.state.posts.find((p) => p.id === id);
+    if (!post) throw new Error("Post no encontrado");
+    if (method === "PATCH" && action === "edit") {
+      if (typeof body.text === "string") post.text = body.text;
+      if (Array.isArray(body.tags)) post.tags = body.tags;
+      return { ok: true, post };
+    }
+    if (method === "POST" && action === "schedule") {
+      post.status = "scheduled";
+      post.scheduledFor = new Date(Date.now() + 3600000).toISOString();
+      return { ok: true, post };
+    }
+    if (method === "POST" && action === "publish") {
+      post.status = "published";
+      post.publishedAt = new Date().toISOString();
+      post.postUrl = `demo://${post.channel}/${post.id}`;
+      return { ok: true, result: "published", post };
+    }
+    if (method === "POST" && action === "discard") {
+      demoStore.state.posts = demoStore.state.posts.filter((p) => p.id !== id);
+      return { ok: true };
+    }
+  }
+  throw new Error("Ruta no soportada en el modo demo");
+}
+
+function enableDemo() {
+  demoMode = true;
+  state = demoStore.state;
+  const b = document.getElementById("demoBanner");
+  if (b) b.hidden = false;
+  render();
+}
+
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function hashtagify(text) {
   return esc(text).replace(/#([\wáéíóúñü]+)/g, '<span class="p-hash">#$1</span>');
 }
 
 async function api(url, opts = {}) {
+  if (demoMode) return demoApi(url, opts);
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json" },
     ...opts,
@@ -128,7 +221,16 @@ async function api(url, opts = {}) {
 }
 
 async function refresh() {
-  state = await api("/api/state");
+  if (demoMode) { state = demoStore.state; return render(); }
+  let res;
+  try {
+    res = await fetch("/api/state", { headers: { "Content-Type": "application/json" } });
+  } catch {
+    return enableDemo();
+  }
+  // Sin backend (GitHub Pages / file://): pasamos al modo demo.
+  if (res.status === 404) return enableDemo();
+  state = await res.json();
   render();
 }
 
@@ -136,8 +238,13 @@ function render() {
   // Modo.
   const dry = state.dryRun;
   const badge = document.getElementById("modeBadge");
-  badge.textContent = dry ? "DRY-RUN (simulación)" : "EN VIVO";
-  badge.className = "badge " + (dry ? "dry" : "live");
+  if (demoMode) {
+    badge.textContent = "DEMO estática";
+    badge.className = "badge dry";
+  } else {
+    badge.textContent = dry ? "DRY-RUN (simulación)" : "EN VIVO";
+    badge.className = "badge " + (dry ? "dry" : "live");
+  }
   document.getElementById("dryBanner").hidden = !dry;
 
   // Chips de canales.

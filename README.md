@@ -327,6 +327,14 @@ npm run plan                    # plan editorial semanal (pilares + calendario)
 npm run gen-image -- "prompt"   # imagen gratis (Pollinations/HF)
 ```
 
+## 🌐 Demo del panel en GitHub Pages
+
+El panel también está publicado como **demo estática** en
+[**https://re1m0n.github.io/social-agent/**](https://re1m0n.github.io/social-agent/)
+(se actualiza sola en cada push a `main`). Sin backend, el panel entra en
+**modo demo**: muestra datos de ejemplo y simula aprobar/programar/publicar
+en el navegador, para ver la interfaz sin tocar tu cola real.
+
 ## Notas de producción
 
 - **Empieza en simulación**: `DRY_RUN=1` (default) marca los posts como publicados sin tocar APIs.
