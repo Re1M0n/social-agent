@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { generateEditorialPlan, generateWithTemplates } from "../agent/marketingAgent.js";
-import { loadConfig } from "../config.js";
 import type { ContentItem } from "../types.js";
+import { testConfig } from "./helpers.js";
 
 const idea: ContentItem = {
   id: "idea-1",
@@ -62,8 +62,8 @@ describe("generateWithTemplates", () => {
 
 describe("generateEditorialPlan (plantilla)", () => {
   it("genera un plan semanal con pilares, calendario y variantes A/B", async () => {
-    const config = loadConfig();
-    config.llm.enabled = false;
+    // Hermético: sin .env local; llm ya desactivado en el config de test.
+    const config = testConfig();
     const { plan, usedLlm } = await generateEditorialPlan(config, {
       weekStart: "2026-08-10",
       weekEnd: "2026-08-16",

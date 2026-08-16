@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import { after, before, describe, it } from "node:test";
 import { generateWeeklyReport, type WeeklyReportContext } from "../agent/marketingAgent.js";
-import { loadConfig } from "../config.js";
 import { bskyUriFromUrl, fetchFollowers, fetchPostEngagement } from "../metrics.js";
 import type { ChannelConfig, Post } from "../types.js";
+import { testConfig } from "./helpers.js";
 
 function mockApi(routes: Array<{ method: string; match: (url: URL) => boolean; handler: () => { status: number; body: unknown } }>): Promise<{ server: Server; base: string }> {
   const server = createServer((req, res) => {
@@ -61,6 +61,7 @@ describe("bskyUriFromUrl", () => {
 describe("fetchFollowers y fetchPostEngagement (APIs simuladas)", () => {
   let mastodon: Server | undefined;
   let bluesky: Server | undefined;
+  let mastodonBase = "";
 
   before(async () => {
     const m = await mockApi([
@@ -79,7 +80,7 @@ describe("fetchFollowers y fetchPostEngagement (APIs simuladas)", () => {
       },
     ]);
     mastodon = m.server;
-    process.env.MASTODON_URL = m.base;
+    mastodonBase = m.base;
 
     const b = await mockApi([
       {
@@ -106,13 +107,13 @@ describe("fetchFollowers y fetchPostEngagement (APIs simuladas)", () => {
   });
 
   it("obtiene seguidores de Mastodon", async () => {
-    const cfg = makeConfig({ MASTODON_URL: process.env.MASTODON_URL, MASTODON_TOKEN: "tok" });
+    const cfg = makeConfig({ MASTODON_URL: mastodonBase, MASTODON_TOKEN: "tok" });
     assert.equal(await fetchFollowers("mastodon", cfg), 1234);
   });
 
   it("obtiene engagement de un status de Mastodon", async () => {
-    const cfg = makeConfig({ MASTODON_URL: process.env.MASTODON_URL, MASTODON_TOKEN: "tok" });
-    const post = makePublishedPost("mastodon", `${process.env.MASTODON_URL}/@usuario/42`);
+    const cfg = makeConfig({ MASTODON_URL: mastodonBase, MASTODON_TOKEN: "tok" });
+    const post = makePublishedPost("mastodon", `${mastodonBase}/@usuario/42`);
     const eng = await fetchPostEngagement(post, cfg);
     assert.deepEqual(eng, { likes: 15, reposts: 7, comments: 3 });
   });
@@ -136,7 +137,7 @@ describe("fetchFollowers y fetchPostEngagement (APIs simuladas)", () => {
   after(() => {
     mastodon?.close();
     bluesky?.close();
-    delete process.env.MASTODON_URL;
+    // BLUESKY_XRPC sí se lee del entorno en metrics.ts; MASTODON_URL no.
     delete process.env.BLUESKY_XRPC;
   });
 });
@@ -168,8 +169,8 @@ describe("generateWeeklyReport (plantilla)", () => {
   };
 
   it("genera un informe estructurado con secciones clave", async () => {
-    const config = loadConfig();
-    config.llm.enabled = false;
+    // Hermético: sin .env local; llm ya desactivado en el config de test.
+    const config = testConfig();
     const { report, usedLlm } = await generateWeeklyReport(config, ctx);
     assert.equal(usedLlm, false);
     for (const section of ["Resumen ejecutivo", "Rendimiento por canal", "Mejor contenido", "Insights"]) {
@@ -180,8 +181,7 @@ describe("generateWeeklyReport (plantilla)", () => {
   });
 
   it("marca el mejor contenido de la semana", async () => {
-    const config = loadConfig();
-    config.llm.enabled = false;
+    const config = testConfig();
     const { report } = await generateWeeklyReport(config, ctx);
     assert.ok(report.includes("Lanzamos nuestra app"), "mejor post identificado");
   });
