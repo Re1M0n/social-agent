@@ -419,4 +419,62 @@ describe("Panel web: API de revisión y aprobación", () => {
     assert.equal(data.config.source, "remote");
     assert.equal(data.config.form.OLLAMA_BASE_URL, "http://192.168.1.50:11434");
   });
+
+  it("POST /api/config habilita/deshabilita canales y los persiste", async () => {
+    const res = await fetch(`${base}/api/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        LLM_API_KEY: "", LLM_BASE_URL: "", LLM_MODEL: "",
+        LLM_LOCAL: "", LLM_SPEED: "", OLLAMA_BASE_URL: "", OLLAMA_MODEL: "",
+        LLM_FREE_FALLBACK: "", LLM_ENABLED: "",
+        CHANNEL_MASTODON_ENABLED: "0",
+        CHANNEL_BLUESKY_ENABLED: "1",
+        CHANNEL_TWITTER_ENABLED: "0",
+        CHANNEL_LINKEDIN_ENABLED: "0",
+        CHANNEL_INSTAGRAM_ENABLED: "0",
+        CHANNEL_FACEBOOK_ENABLED: "0",
+        CHANNEL_TIKTOK_ENABLED: "0",
+      }),
+    });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    const find = (id: string) => data.config.channels.find((c: { id: string }) => c.id === id);
+    assert.equal(find("mastodon").enabled, false, "mastodon deshabilitado por el panel");
+    assert.equal(find("bluesky").enabled, true, "bluesky habilitado por el panel");
+    const saved = JSON.parse(readFileSync(join(dir, "data", "ui-config.json"), "utf8"));
+    assert.equal(saved.CHANNEL_MASTODON_ENABLED, "0");
+    assert.equal(saved.CHANNEL_BLUESKY_ENABLED, "1");
+    // El estado queda aplicado en el siguiente GET.
+    const again = await (await fetch(`${base}/api/config`)).json();
+    assert.equal(again.channels.find((c: { id: string }) => c.id === "mastodon").enabled, false);
+  });
+
+  it("POST /api/config cambia DRY_RUN y AUTO_PUBLISH en caliente", async () => {
+    const res = await fetch(`${base}/api/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        LLM_API_KEY: "", LLM_BASE_URL: "", LLM_MODEL: "",
+        LLM_LOCAL: "", LLM_SPEED: "", OLLAMA_BASE_URL: "", OLLAMA_MODEL: "",
+        LLM_FREE_FALLBACK: "", LLM_ENABLED: "",
+        DRY_RUN: "0",
+        AUTO_PUBLISH: "1",
+        CHANNEL_MASTODON_ENABLED: "1", CHANNEL_BLUESKY_ENABLED: "1",
+        CHANNEL_TWITTER_ENABLED: "1", CHANNEL_LINKEDIN_ENABLED: "1",
+        CHANNEL_INSTAGRAM_ENABLED: "1", CHANNEL_FACEBOOK_ENABLED: "1", CHANNEL_TIKTOK_ENABLED: "1",
+      }),
+    });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(data.config.publication.dryRun, false, "sale de simulación");
+    assert.equal(data.config.publication.autoPublish, true, "modo autónomo activado");
+    const saved = JSON.parse(readFileSync(join(dir, "data", "ui-config.json"), "utf8"));
+    assert.equal(saved.DRY_RUN, "0");
+    assert.equal(saved.AUTO_PUBLISH, "1");
+    // Aplicado al resto de la API: /api/state lo refleja al instante.
+    const state = await (await fetch(`${base}/api/state`)).json();
+    assert.equal(state.dryRun, false);
+    assert.equal(state.autoPublish, true);
+  });
 });

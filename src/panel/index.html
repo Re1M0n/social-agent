@@ -168,6 +168,8 @@ let cfg = null;
 let cfgLoading = false;
 let cfgSource = "auto";
 let cfgSpeed = "equilibrado";
+let cfgChannels = {}; // estado habilitado/deshabilitado de cada canal (página ⚙️)
+let cfgPublication = { dryRun: true, autoPublish: false }; // modo de publicación
 let cfgDraft = {}; // valores escritos en el formulario sin guardar aún
 let wizardDone = false;
 
@@ -331,7 +333,9 @@ function demoConfig() {
     llm: { provider: "kilo-anon", baseUrl: "https://api.kilo.ai/api/gateway", model: "openrouter/free", apiKeySet: false, localLlm: "auto", speed: "equilibrado" },
     source: "auto",
     firstInstall: false,
-    form: { LLM_API_KEY: "", LLM_BASE_URL: "https://api.openai.com/v1", LLM_MODEL: "gpt-4o-mini", OLLAMA_BASE_URL: "", OLLAMA_MODEL: "", LLM_LOCAL: "auto", LLM_SPEED: "equilibrado" },
+    form: { LLM_API_KEY: "", LLM_BASE_URL: "https://api.openai.com/v1", LLM_MODEL: "gpt-4o-mini", OLLAMA_BASE_URL: "", OLLAMA_MODEL: "", LLM_LOCAL: "auto", LLM_SPEED: "equilibrado", DRY_RUN: "1", AUTO_PUBLISH: "0" },
+    publication: { dryRun: true, autoPublish: false },
+    channels: Object.entries(PLATFORM_META).map(([id, m]) => ({ id, name: m.name, enabled: true, limit: DEMO_LIMITS[id], hasCredentials: id === "mastodon" || id === "bluesky" })),
   };
 }
 
@@ -432,6 +436,11 @@ async function fetchConfig() {
     cfg = await res.json();
     cfgSource = cfg.source || "auto";
     cfgSpeed = cfg.llm && cfg.llm.speed || "equilibrado";
+    cfgChannels = {};
+    (cfg.channels || []).forEach((c) => { cfgChannels[c.id] = c.enabled; });
+    if (cfg.publication) {
+      cfgPublication = { dryRun: !!cfg.publication.dryRun, autoPublish: !!cfg.publication.autoPublish };
+    }
     renderWizard();
   } catch {
     cfg = null;
@@ -954,7 +963,55 @@ function renderConfig() {
         </div>
       </div>
       ${configFormHtml()}
+      ${publicationFormHtml()}
+      ${channelsFormHtml()}
     </div>`;
+}
+
+/** Tarjeta de publicación: DRY_RUN (simulación/en vivo) y AUTO_PUBLISH (autónomo). */
+function publicationFormHtml() {
+  return `
+    <div class="cfg-card">
+      <h3>🚀 Publicación</h3>
+      <p class="meta">Cambia el modo de publicación desde el panel (se aplica en caliente, sin reiniciar).</p>
+      <div class="cfg-options">
+        <div class="cfg-option ${cfgPublication.dryRun ? "sel" : ""}" onclick="togglePub('dryRun')" title="Clic para alternar">
+          <div class="t">${cfgPublication.dryRun ? "🧪 Simulación (DRY_RUN=1)" : "🔴 En vivo (DRY_RUN=0)"}</div>
+          <div class="d">${cfgPublication.dryRun ? "Nada se publica de verdad: los posts se marcan como publicados." : "¡Cuidado! Se publica en las APIs reales de los canales."}</div>
+        </div>
+        <div class="cfg-option ${cfgPublication.autoPublish ? "sel" : ""}" onclick="togglePub('autoPublish')" title="Clic para alternar">
+          <div class="t">${cfgPublication.autoPublish ? "🤖 Autónomo (AUTO_PUBLISH=1)" : "🖐️ Borradores (AUTO_PUBLISH=0)"}</div>
+          <div class="d">${cfgPublication.autoPublish ? "El agente programa y publica solo." : "Los drafts quedan para tu revisión antes de publicar."}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function togglePub(key) {
+  cfgPublication[key] = !cfgPublication[key];
+  renderConfig();
+}
+
+/** Tarjeta de canales: activa/desactiva plataformas (se guarda con el resto). */
+function channelsFormHtml() {
+  const chans = (cfg && cfg.channels) || [];
+  return `
+    <div class="cfg-card">
+      <h3>📡 Canales</h3>
+      <p class="meta">Los canales con credenciales se habilitan solos; aquí puedes forzarlos (o silenciar una plataforma sin tocar el .env). Recuerda pulsar 💾 Guardar.</p>
+      <div class="cfg-options">
+        ${chans.map((c) => `
+          <div class="cfg-option ${cfgChannels[c.id] ? "sel" : ""}" onclick="toggleChannel('${c.id}')" title="${cfgChannels[c.id] ? "Clic para deshabilitar" : "Clic para habilitar"}">
+            <div class="t">${PLATFORM_META[c.id] ? PLATFORM_META[c.id].emoji : ""} ${esc(c.name)} ${cfgChannels[c.id] ? "✅" : "🚫"}</div>
+            <div class="d">${c.hasCredentials ? "con credenciales" : "sin credenciales"} · límite ${c.limit} car.</div>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
+
+function toggleChannel(id) {
+  cfgChannels[id] = !cfgChannels[id];
+  renderConfig();
 }
 
 function cfgSummaryItem(k, v) {
@@ -1033,6 +1090,13 @@ async function saveCfg(test) {
     vars.LLM_BASE_URL = cfgVal("LLM_BASE_URL", "cfgBaseUrl") || "https://api.openai.com/v1";
     vars.LLM_MODEL = cfgVal("LLM_MODEL", "cfgModel") || "gpt-4o-mini";
   }
+  // Modo de publicación.
+  vars.DRY_RUN = cfgPublication.dryRun ? "1" : "0";
+  vars.AUTO_PUBLISH = cfgPublication.autoPublish ? "1" : "0";
+  // Canales: forzar el estado elegido en la página ⚙️ Config.
+  Object.keys(cfgChannels).forEach((id) => {
+    vars[`CHANNEL_${id.toUpperCase()}_ENABLED`] = cfgChannels[id] ? "1" : "0";
+  });
   const box = document.getElementById("cfgResult");
   if (box) box.innerHTML = `<span class="meta">Guardando…</span>`;
   try {
@@ -1040,6 +1104,16 @@ async function saveCfg(test) {
     cfg = data.config;
     cfgSource = data.config.source;
     cfgSpeed = data.config.llm.speed;
+    cfgChannels = {};
+    (data.config.channels || []).forEach((c) => { cfgChannels[c.id] = c.enabled; });
+    if (data.config.publication) {
+      cfgPublication = { dryRun: !!data.config.publication.dryRun, autoPublish: !!data.config.publication.autoPublish };
+      // Reflejar el nuevo modo en la cabecera (badge DRY-RUN/EN VIVO) al instante.
+      if (state) {
+        state.dryRun = data.config.publication.dryRun;
+        state.autoPublish = data.config.publication.autoPublish;
+      }
+    }
     cfgDraft = {};
     wizardDone = true;
     hideWizard();

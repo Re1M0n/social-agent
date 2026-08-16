@@ -303,12 +303,16 @@ publicar, con el flujo aprobar/descartar en vivo:
   desplegable.
 - **Acciones**: ✅ Aprobar todos (programa en horarios óptimos), 🕐 Programar
   (aprueba un draft), 🚀 Publicar ahora, 🔁 Reintentar fallidos y 🗑 Descartar.
-- **Pestaña ⚙️ Config (IA)**: elige de dónde sale la IA (detección automática,
+- **Pestaña ⚙️ Config**: elige de dónde sale la IA (detección automática,
   otra máquina con Ollama/Qwen vía `OLLAMA_BASE_URL`, o API en la nube con
-  clave) y el selector 🐢⚡ potencia/velocidad (`ahorro`/`equilibrado`/`rendimiento`),
-  con botón **🧪 Probar y guardar** que comprueba la conexión en vivo. Lo que
-  guardes se persiste en `data/ui-config.json` (ignorado por git) y se aplica
-  **en caliente** a la generación, sin reiniciar el panel.
+  clave), el selector 🐢⚡ potencia/velocidad (`ahorro`/`equilibrado`/`rendimiento`)
+  y un **selector de canales** para habilitar/deshabilitar cada plataforma (con
+  indicación de si tiene credenciales), además del **modo de publicación**
+  (🧪 simulación/en vivo con `DRY_RUN` y 🤖 autónomo/borradores con
+  `AUTO_PUBLISH`), con botón **🧪 Probar y guardar** que comprueba la conexión
+  en vivo. Lo que guardes se persiste en `data/ui-config.json` (ignorado por
+  git) y se aplica **en caliente** a la generación y al estado del panel, sin
+  reiniciarlo.
 - **👋 Primer arranque**: la primera vez que abras el panel (o si no hay IA
   configurada), un asistente te pide elegir la IA antes de empezar; puedes
   omitirlo y volver luego a la pestaña ⚙️ Config.

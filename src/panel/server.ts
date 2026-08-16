@@ -447,7 +447,23 @@ function configView(config: AgentConfig, saved: UiConfigVars): Record<string, un
       OLLAMA_MODEL: val("OLLAMA_MODEL"),
       LLM_LOCAL: llm.localLlm,
       LLM_SPEED: llm.speed,
+      DRY_RUN: val("DRY_RUN") || (config.dryRun ? "1" : "0"),
+      AUTO_PUBLISH: val("AUTO_PUBLISH") || (config.autoPublish ? "1" : "0"),
     },
+    publication: {
+      dryRun: config.dryRun,
+      autoPublish: config.autoPublish,
+    },
+    channels: (Object.keys(config.channels) as ChannelId[]).map((id) => {
+      const c = config.channels[id];
+      return {
+        id,
+        name: PLATFORM_PROFILES[id].name,
+        enabled: c.enabled,
+        limit: CHANNEL_LIMITS[id],
+        hasCredentials: Object.values(c.credentials).some(Boolean),
+      };
+    }),
   };
 }
 

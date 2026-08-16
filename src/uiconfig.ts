@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-/** Variables de IA editables desde el panel web (se guardan en data/ui-config.json
- *  y se aplican a process.env antes de cargar la config). */
+/** Variables de IA y canales editables desde el panel web (se guardan en
+ *  data/ui-config.json y se aplican a process.env antes de cargar la config). */
 export const UI_CONFIG_KEYS = [
   "LLM_API_KEY",
   "LLM_BASE_URL",
@@ -13,6 +13,17 @@ export const UI_CONFIG_KEYS = [
   "OLLAMA_MODEL",
   "LLM_FREE_FALLBACK",
   "LLM_ENABLED",
+  // Modo de publicación: DRY_RUN (simulación) y AUTO_PUBLISH (autónomo).
+  "DRY_RUN",
+  "AUTO_PUBLISH",
+  // Canales: CHANNEL_<CANAL>_ENABLED = "1" (fuerza activo) / "0" (fuerza inactivo).
+  "CHANNEL_MASTODON_ENABLED",
+  "CHANNEL_BLUESKY_ENABLED",
+  "CHANNEL_TWITTER_ENABLED",
+  "CHANNEL_LINKEDIN_ENABLED",
+  "CHANNEL_INSTAGRAM_ENABLED",
+  "CHANNEL_FACEBOOK_ENABLED",
+  "CHANNEL_TIKTOK_ENABLED",
 ] as const;
 
 export type UiConfigKey = (typeof UI_CONFIG_KEYS)[number];
