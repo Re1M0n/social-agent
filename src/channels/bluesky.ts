@@ -3,7 +3,10 @@ import { mimeOf } from "./http.js";
 import { missingCredentials, type ChannelAdapter, type PublishResult } from "./types.js";
 import type { ChannelConfig, Post } from "../types.js";
 
-const SERVICE = "https://bsky.social/xrpc";
+/** Endpoint XRPC: respeta BLUESKY_XRPC (p. ej. para tests o instancias alternativas). */
+function service(): string {
+  return (process.env.BLUESKY_XRPC ?? "https://bsky.social/xrpc").replace(/\/+$/, "");
+}
 
 interface Session {
   accessJwt: string;
@@ -11,7 +14,7 @@ interface Session {
 }
 
 async function createSession(handle: string, appPassword: string): Promise<Session> {
-  const res = await fetch(`${SERVICE}/com.atproto.server.createSession`, {
+  const res = await fetch(`${service()}/com.atproto.server.createSession`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ identifier: handle, password: appPassword }),
@@ -25,7 +28,7 @@ async function createSession(handle: string, appPassword: string): Promise<Sessi
 
 async function uploadBlob(session: Session, filePath: string): Promise<{ blob: unknown }> {
   const data = readFileSync(filePath);
-  const res = await fetch(`${SERVICE}/com.atproto.repo.uploadBlob`, {
+  const res = await fetch(`${service()}/com.atproto.repo.uploadBlob`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${session.accessJwt}`,
@@ -76,7 +79,7 @@ export const blueskyAdapter: ChannelAdapter = {
         record.embed = { $type: "app.bsky.embed.images", images };
       }
 
-      const res = await fetch(`${SERVICE}/com.atproto.repo.createRecord`, {
+      const res = await fetch(`${service()}/com.atproto.repo.createRecord`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.accessJwt}`,

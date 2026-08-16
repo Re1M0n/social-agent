@@ -6,8 +6,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { startPanel } from "./panel/server.js";
 import { generateEditorialPlan, generateWeeklyReport, type EditorialPlanContext, type WeeklyReportContext } from "./agent/marketingAgent.js";
 import { chat } from "./llm.js";
-import { fetchFollowers, fetchPostEngagement, loadManualMetrics, MetricsStore } from "./metrics.js";
-import { nextSlot } from "./scheduler.js";
+import { checkChannelCredentials, fetchFollowers, fetchPostEngagement, loadManualMetrics, MetricsStore } from "./metrics.js";
+import { BEST_SLOTS, buildLearnablePosts, learnSchedule, nextSlot, saveLearnedSchedule } from "./scheduler.js";
+import { learnedScheduleFile, loadLearned } from "./publisher.js";
 import { generateImage } from "./mediaGen.js";
 import { publishDue, scheduleDrafts } from "./publisher.js";
 import { Store } from "./storage.js";
@@ -29,11 +30,13 @@ Comandos:
   channels   Lista los canales y si están configurados
   media-urls Muestra las URLs públicas de cada archivo de media y verifica acceso
   metrics    Recopila seguidores y engagement por canal (en vivo + manual)
+  credentials:check  Verifica en vivo las credenciales de Mastodon y Bluesky
   calendar   Calendario editorial de la semana (--md exporta a markdown)
   report     Genera el informe semanal de rendimiento (agente LLM)
   plan       Genera el plan editorial semanal (pilares + calendario, agente LLM)
   gen-image  Genera una imagen gratis para un ítem o un prompt (Pollinations/HF)
   llm:check  Comprueba la conexión con la IA y muestra el proveedor en uso
+  schedule:learn  Aprende los horarios óptimos por canal del engagement real (data/schedule-learned.json)
   panel      Abre el panel web para revisar, editar y aprobar drafts
 
 Servidor de media (para Instagram/TikTok):
@@ -172,6 +175,11 @@ async function main(): Promise<void> {
       break;
     }
 
+    case "schedule:learn": {
+      runScheduleLearn(config, store);
+      break;
+    }
+
     case "panel": {
       const port = Number(process.env.PANEL_PORT ?? 4000);
       try {
@@ -188,6 +196,11 @@ async function main(): Promise<void> {
 
     case "metrics": {
       await runMetrics(config, store);
+      break;
+    }
+
+    case "credentials:check": {
+      await runCredentialsCheck(config);
       break;
     }
 
@@ -392,18 +405,21 @@ function buildCalendar(config: ReturnType<typeof loadConfig>, store: Store): str
     }
   }
 
-  // Huecos recomendados: próximos 3 slots por canal habilitado.
+  // Huecos recomendados: próximos 3 slots por canal habilitado (modelo aprendido si existe).
   const enabled = (Object.keys(config.channels) as ChannelId[]).filter((id) => config.channels[id].enabled);
+  const learned = loadLearned(config);
+  const learnedChannels = Object.keys(learned).filter((id) => (learned as Record<string, { samples: number }>)[id]?.samples > 0);
   lines.push("\n## Huecos recomendados (próximas publicaciones)\n");
   for (const channel of enabled) {
     let after = new Date();
     const slots: string[] = [];
     for (let i = 0; i < 3; i++) {
-      const slot = nextSlot(channel, after, config.minIntervalMs);
+      const slot = nextSlot(channel, after, config.minIntervalMs, 3, learned);
       slots.push(`${fmtDate(slot)} ${fmtTime(slot)}`);
       after = new Date(slot.getTime() + config.minIntervalMs);
     }
-    lines.push(`- **${channel}**: ${slots.join(" → ")}`);
+    const origin = learnedChannels.includes(channel) ? " (aprendido)" : " (estático)";
+    lines.push(`- **${channel}**${origin}: ${slots.join(" → ")}`);
   }
   lines.push("\n_Generado por Social Agent._");
   return lines.join("\n");
@@ -504,6 +520,37 @@ async function runMetrics(config: ReturnType<typeof loadConfig>, store: Store): 
   );
 }
 
+/* ── Verificación de credenciales ──────────────────────────── */
+
+/** Verifica en vivo las credenciales de cada canal habilitado (Mastodon, Bluesky). */
+async function runCredentialsCheck(config: ReturnType<typeof loadConfig>): Promise<void> {
+  console.log("🔑 Verificación de credenciales en vivo\n");
+  let checked = 0;
+  for (const id of CHANNELS) {
+    const cfg = config.channels[id];
+    if (!cfg.enabled) {
+      console.log(`  ${id.padEnd(9)} ⏭  deshabilitado (CHANNEL_${id.toUpperCase()}_ENABLED=0)`);
+      continue;
+    }
+    const result = await checkChannelCredentials(id, cfg);
+    checked++;
+    if (result.ok) {
+      console.log(`  ${id.padEnd(9)} ✅ ${result.detail}`);
+    } else if (id === "mastodon" || id === "bluesky") {
+      console.log(`  ${id.padEnd(9)} ❌ ${result.detail}`);
+    } else {
+      console.log(`  ${id.padEnd(9)} ⚠️  ${result.detail}`);
+    }
+  }
+  console.log(`\n${checked} canal(es) habilitado(s) verificado(s).`);
+  if (checked > 0) {
+    console.log(
+      "Para publicar en vivo: Mastodon y Bluesky solo necesitan sus credenciales en .env\n" +
+        "(MASTODON_URL/MASTODON_TOKEN y BLUESKY_HANDLE/BLUESKY_APP_PASSWORD). Ver .env.example.",
+    );
+  }
+}
+
 /* ── Informe semanal ────────────────────────────────────────── */
 
 async function runReport(config: ReturnType<typeof loadConfig>, store: Store): Promise<void> {
@@ -588,6 +635,45 @@ async function printMediaUrls(config: ReturnType<typeof loadConfig>, store: Stor
     "\n💡 Recuerda: si usas localhost, Instagram/TikTok no podrán alcanzarla. " +
       "Usa un túnel público (ngrok) o un hosting para la carpeta content/media.",
   );
+}
+
+/* ── Aprendizaje de horarios óptimos ───────────────────────── */
+
+/** Analiza el engagement real y aprende los horarios óptimos por canal.
+ *  Guarda el modelo en data/schedule-learned.json (usado por publish y calendar). */
+function runScheduleLearn(config: ReturnType<typeof loadConfig>, store: Store): void {
+  const metricsFile = config.dataFile.replace(/agent\.json$/, "metrics.json");
+  const metrics = new MetricsStore(metricsFile);
+  const published = store.getPostsByStatus("published");
+  const learnable = buildLearnablePosts(published, metrics.data);
+  const learned = learnSchedule(learnable);
+
+  const file = learnedScheduleFile(config);
+  saveLearnedSchedule(file, learned);
+
+  const DAY_NAMES = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+  console.log("📈 Horarios óptimos por canal (aprendidos del engagement real)\n");
+  console.log("  canal      | estático          | aprendido (muestras)              ");
+  console.log("  -----------|-------------------|------------------------------------");
+  for (const id of CHANNELS) {
+    const cfg = config.channels[id];
+    if (!cfg.enabled) continue;
+    const staticSlots = BEST_SLOTS[id];
+    const learnedChannel = learned[id];
+    const staticStr = `d:${staticSlots.days.map((d) => DAY_NAMES[d]).join(",")} h:${staticSlots.hours.join(",")}`;
+    if (learnedChannel) {
+      const learnedStr = `d:${learnedChannel.days.map((d) => DAY_NAMES[d]).join(",")} h:${learnedChannel.hours.join(",")}`;
+      console.log(`  ${id.padEnd(10)} | ${staticStr.padEnd(17)} | ${learnedStr} (${learnedChannel.samples} posts, avg ${learnedChannel.avgEngagement})`);
+    } else {
+      console.log(`  ${id.padEnd(10)} | ${staticStr.padEnd(17)} | — sin datos aún (usa estático)`);
+    }
+  }
+  console.log(`\n✓ Modelo guardado en ${file}`);
+  console.log("  scheduleDrafts, el panel y calendar lo usarán automáticamente.");
+  if (learnable.length === 0) {
+    console.log("\nℹ️  Aún no hay posts publicados con engagement. Ejecuta 'metrics' tras publicar");
+    console.log("    para recopilar datos, y vuelve a ejecutar este comando para aprender.");
+  }
 }
 
 main().catch((err) => {

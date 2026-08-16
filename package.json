@@ -26,6 +26,8 @@
     "gen-image": "npm run build && node dist/cli.js gen-image",
     "setup:tools": "node scripts/fetch-ytdlp.js",
     "llm:check": "npm run build && node dist/cli.js llm:check",
+    "schedule:learn": "npm run build && node dist/cli.js schedule:learn",
+    "credentials:check": "npm run build && node dist/cli.js credentials:check",
     "panel": "npm run build && node dist/cli.js panel",
     "status": "npm run build && node dist/cli.js status",
     "test": "npm run build && node --test \"dist/test/*.test.js\""

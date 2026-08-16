@@ -103,6 +103,18 @@ AUTO_PUBLISH=1 DRY_RUN=0 npm run serve
 > Un canal se habilita automáticamente cuando tiene credenciales, o explícitamente
 > con `CHANNEL_<CANAL>_ENABLED=1` (por ejemplo `CHANNEL_TIKTOK_ENABLED=1`).
 
+### 🔑 Verificación de credenciales en vivo
+
+```bash
+npm run credentials:check
+```
+
+Comprueba **en vivo** que las credenciales de Mastodon y Bluesky funcionan
+(consulta la API real de la plataforma y muestra tu cuenta y seguidores). Los
+canales sin API accesible (X, LinkedIn, Instagram, Facebook, TikTok) muestran
+un aviso y usan `data/metrics-manual.json`. Ideal antes de activar `AUTO_PUBLISH`
+o de publicar en vivo por primera vez.
+
 ## 📦 Media pública para Instagram y TikTok
 
 Instagram y TikTok **no suben la media desde tu máquina**: sus servidores la
@@ -267,10 +279,30 @@ refleja en `status`, `calendar`, `metrics` y `report`.
 ```bash
 npm run calendar        # vista de la semana: posts publicados/programados + huecos recomendados
 npm run calendar:md     # exporta a content/calendario-editorial.md
+npm run schedule:learn  # aprende los horarios óptimos del engagement real (data/schedule-learned.json)
+npm run credentials:check  # verifica en vivo las credenciales de Mastodon y Bluesky
 ```
 
 Agrupa los posts de la semana (publicados/programados) y calcula los **próximos
 huecos de publicación** por canal usando los horarios óptimos de cada plataforma.
+
+### 🎯 Horarios que aprenden de tus datos
+
+Cada plataforma parte de franjas recomendadas (p. ej. LinkedIn mar-jue 8-11h).
+Con `npm run schedule:learn` el agente analiza el **engagement real** de tus
+posts publicados (likes, reposts ×2, comentarios ×3, clics) y ajusta las
+franjas por canal — con pocas muestras conserva el prior estático y, con
+datos suficientes, da prioridad a las horas que mejor te funcionan:
+
+```bash
+npm run metrics          # 1. recopila seguidores y engagement → data/metrics.json
+npm run schedule:learn   # 2. aprende y guarda → data/schedule-learned.json
+npm run calendar         # 3. el calendario marca los huecos "(aprendido)"
+```
+
+El modelo aprendido se usa automáticamente en `publish`/`serve`, en el botón
+🕐 Programar del panel y en el calendario. Si no hay datos aún, todo sigue
+funcionando con el prior estático.
 
 ### Métricas por canal
 

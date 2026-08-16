@@ -172,6 +172,58 @@ async function createBskySession(
   return (await res.json()) as { accessJwt: string };
 }
 
+/* ── Verificación de credenciales en vivo ──────────────────── */
+
+export interface CredentialCheck {
+  ok: boolean;
+  detail: string;
+}
+
+/** Verifica en vivo que las credenciales del canal funcionan.
+ *  Mastodon: GET verify_credentials. Bluesky: createSession + getProfile.
+ *  El resto devuelve un aviso (no hay API accesible desde aquí). */
+export async function checkChannelCredentials(
+  channel: ChannelId,
+  config: ChannelConfig,
+): Promise<CredentialCheck> {
+  try {
+    switch (channel) {
+      case "mastodon": {
+        const instance = config.credentials.MASTODON_URL?.replace(/\/+$/, "");
+        const token = config.credentials.MASTODON_TOKEN;
+        if (!instance || !token) {
+          return { ok: false, detail: "faltan MASTODON_URL y MASTODON_TOKEN en .env" };
+        }
+        const res = await fetch(`${instance}/api/v1/accounts/verify_credentials`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return { ok: false, detail: `HTTP ${res.status}: ${(await res.text().catch(() => "")).slice(0, 120)}` };
+        const json = (await res.json().catch(() => ({}))) as { username?: string; followers_count?: number };
+        return { ok: true, detail: `@${json.username ?? "?"} (${json.followers_count ?? 0} seguidores)` };
+      }
+      case "bluesky": {
+        const handle = config.credentials.BLUESKY_HANDLE;
+        const appPassword = config.credentials.BLUESKY_APP_PASSWORD;
+        if (!handle || !appPassword) {
+          return { ok: false, detail: "faltan BLUESKY_HANDLE y BLUESKY_APP_PASSWORD en .env" };
+        }
+        const xrpc = (process.env.BLUESKY_XRPC ?? "https://bsky.social/xrpc").replace(/\/+$/, "");
+        const session = await createBskySession(xrpc, handle, appPassword);
+        const res = await fetch(`${xrpc}/app.bsky.actor.getProfile?actor=${encodeURIComponent(handle)}`, {
+          headers: { Authorization: `Bearer ${session.accessJwt}` },
+        });
+        if (!res.ok) return { ok: false, detail: `HTTP ${res.status} tras login correcto` };
+        const json = (await res.json().catch(() => ({}))) as { displayName?: string; followersCount?: number };
+        return { ok: true, detail: `${json.displayName ?? handle} (${json.followersCount ?? 0} seguidores)` };
+      }
+      default:
+        return { ok: false, detail: "sin verificación en vivo (requiere su API propia); usa data/metrics-manual.json" };
+    }
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /* ── Datos manuales (canales sin API accesible) ────────────── */
 
 export interface ManualMetrics {

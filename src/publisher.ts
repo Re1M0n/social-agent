@@ -1,6 +1,6 @@
 import { getAdapter } from "./channels/index.js";
 import type { AgentConfig } from "./config.js";
-import { nextSlot } from "./scheduler.js";
+import { loadLearnedSchedule, nextSlot, type LearnedSchedule } from "./scheduler.js";
 import type { Store } from "./storage.js";
 import type { ChannelId, Post } from "./types.js";
 
@@ -112,24 +112,36 @@ export async function publishSingle(config: AgentConfig, store: Store, postId: s
   return publishOnePost(config, store, post);
 }
 
+/** Ruta del modelo aprendido de horarios (junto al dataFile). */
+export function learnedScheduleFile(config: AgentConfig): string {
+  return config.dataFile.replace(/agent\.json$/, "schedule-learned.json");
+}
+
+/** Carga el modelo aprendido de horarios (si existe) para el config. */
+export function loadLearned(config: AgentConfig): LearnedSchedule {
+  return loadLearnedSchedule(learnedScheduleFile(config));
+}
+
 /** Programa un post concreto en su siguiente hueco óptimo (aprobación desde el panel). */
 export function scheduleSingle(config: AgentConfig, store: Store, postId: string): Post | undefined {
   const post = store.posts.find((p) => p.id === postId);
   if (!post) return undefined;
-  const slot = nextSlot(post.channel, new Date(), config.minIntervalMs);
+  const learned = loadLearned(config);
+  const slot = nextSlot(post.channel, new Date(), config.minIntervalMs, 3, learned);
   const updated = store.updatePost(post.id, { status: "scheduled", scheduledFor: slot.toISOString(), error: undefined });
   return updated ?? post;
 }
 
-/** Programa drafts pendientes en horarios óptimos por canal. */
+/** Programa drafts pendientes en horarios óptimos por canal (usa el modelo aprendido si existe). */
 export function scheduleDrafts(config: AgentConfig, store: Store): number {
   let scheduled = 0;
   const drafts = store.getPostsByStatus("draft");
   const afterByChannel = new Map<string, Date>();
+  const learned = loadLearned(config);
 
   for (const post of drafts) {
     const after = afterByChannel.get(post.channel) ?? new Date();
-    const slot = nextSlot(post.channel, after, config.minIntervalMs);
+    const slot = nextSlot(post.channel, after, config.minIntervalMs, 3, learned);
     afterByChannel.set(post.channel, new Date(slot.getTime() + config.minIntervalMs));
     store.updatePost(post.id, { status: "scheduled", scheduledFor: slot.toISOString() });
     scheduled++;
