@@ -26,7 +26,7 @@ content/media/*     ─┘   (detecta)   (LLM por      (horarios    (API real
 
 ## Requisitos
 
-- Node.js ≥ 20 (probado con Node 24)
+- Node.js ≥ 22 (probado con Node 24)
 
 ## Instalación
 
