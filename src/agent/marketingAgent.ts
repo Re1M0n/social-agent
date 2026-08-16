@@ -146,11 +146,18 @@ export async function generateWithLlm(
     apiKey: config.llm.apiKey ?? "",
     model: config.llm.model,
     temperature: 0.8,
+    // Proveedor gratuito anónimo (sin key): 1 intento y timeout amplio — el
+    // auto-routing gratuito tarda ~90s en generar el JSON de todos los canales.
+    ...(config.llm.apiKey ? {} : { timeoutMs: 180_000 }),
   };
-  const raw = await chat(opts, [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: userPrompt(item, channels) },
-  ]);
+  const raw = await chat(
+    opts,
+    [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userPrompt(item, channels) },
+    ],
+    config.llm.apiKey ? 3 : 1,
+  );
   const parsed = extractJson<{ posts: LlmPost[] }>(raw);
   const now = new Date().toISOString();
   return parsed.posts

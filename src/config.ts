@@ -80,6 +80,17 @@ export function loadConfig(root = process.cwd()): AgentConfig {
 
   const dryRun = (process.env.DRY_RUN ?? "1") === "1" || (process.env.DRY_RUN ?? "1") === "true";
 
+  // Comunicación con la IA. Prioridad:
+  //   1. LLM_API_KEY → el proveedor configurado (OpenRouter, Gemini, Groq, Ollama…).
+  //   2. Sin key, con LLM_FREE_FALLBACK!=0 (default) → proveedor gratuito anónimo
+  //      (Kilo Code, sin registro ni tarjeta; auto-routing a modelos :free).
+  //   3. LLM_ENABLED=0 → plantillas, sin llamadas externas.
+  const apiKey = process.env.LLM_API_KEY;
+  const explicitDisable = (process.env.LLM_ENABLED ?? "1") === "0";
+  const freeFallback = (process.env.LLM_FREE_FALLBACK ?? "1") !== "0";
+  const enabled = !explicitDisable && (Boolean(apiKey) || freeFallback);
+  const isFreeAnonymous = enabled && !apiKey;
+
   return {
     root,
     contentDir: resolve(root, process.env.CONTENT_DIR ?? "content"),
@@ -90,11 +101,15 @@ export function loadConfig(root = process.cwd()): AgentConfig {
     dryRun,
     minIntervalMs: Number(process.env.MIN_POST_INTERVAL_MINUTES ?? 60) * 60_000,
     llm: {
-      provider: process.env.LLM_PROVIDER ?? "openai",
-      baseUrl: process.env.LLM_BASE_URL ?? "https://api.openai.com/v1",
-      apiKey: process.env.LLM_API_KEY,
-      model: process.env.LLM_MODEL ?? "gpt-4o-mini",
-      enabled: Boolean(process.env.LLM_API_KEY) && (process.env.LLM_ENABLED ?? "1") !== "0",
+      provider: isFreeAnonymous
+        ? "kilo-anon"
+        : (process.env.LLM_PROVIDER ?? "openai"),
+      baseUrl: isFreeAnonymous
+        ? "https://api.kilo.ai/api/gateway"
+        : (process.env.LLM_BASE_URL ?? "https://api.openai.com/v1"),
+      apiKey,
+      model: isFreeAnonymous ? "openrouter/free" : (process.env.LLM_MODEL ?? "gpt-4o-mini"),
+      enabled,
     },
     channels,
   };

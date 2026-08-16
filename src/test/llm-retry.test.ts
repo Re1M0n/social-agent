@@ -70,6 +70,22 @@ describe("chat con reintentos", () => {
     });
   });
 
+  it("respeta timeoutMs y no se cuelga con un proveedor mudo", async () => {
+    const slow = createServer(() => {
+      /* nunca responde */
+    });
+    await new Promise<void>((r) => slow.listen(0, "127.0.0.1", r));
+    const addr = slow.address();
+    const baseSlow = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
+    const t0 = Date.now();
+    await assert.rejects(() =>
+      chat({ baseUrl: baseSlow, apiKey: "k", model: "t", timeoutMs: 300 }, [{ role: "user", content: "x" }], 1),
+    );
+    assert.ok(Date.now() - t0 < 10_000, `tardó ${Date.now() - t0} ms`);
+    slow.closeAllConnections();
+    slow.close();
+  });
+
   it("no reintenta errores 4xx permanentes", async () => {
     let badCalls = 0;
     const counting = createServer((_req, res) => {

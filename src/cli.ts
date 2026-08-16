@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { watch } from "chokidar";
 import { existsSync } from "node:fs";
-import { loadConfig } from "./config.js";
+import { loadConfig, type AgentConfig } from "./config.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { startPanel } from "./panel/server.js";
 import { generateEditorialPlan, generateWeeklyReport, type EditorialPlanContext, type WeeklyReportContext } from "./agent/marketingAgent.js";
+import { chat } from "./llm.js";
 import { fetchFollowers, fetchPostEngagement, loadManualMetrics, MetricsStore } from "./metrics.js";
 import { nextSlot } from "./scheduler.js";
 import { generateImage } from "./mediaGen.js";
@@ -32,6 +33,7 @@ Comandos:
   report     Genera el informe semanal de rendimiento (agente LLM)
   plan       Genera el plan editorial semanal (pilares + calendario, agente LLM)
   gen-image  Genera una imagen gratis para un ítem o un prompt (Pollinations/HF)
+  llm:check  Comprueba la conexión con la IA y muestra el proveedor en uso
   panel      Abre el panel web para revisar, editar y aprobar drafts
 
 Servidor de media (para Instagram/TikTok):
@@ -79,7 +81,9 @@ async function main(): Promise<void> {
           : "Sin drafts nuevos. Ejecuta 'ingest' primero o añade contenido.",
       );
       if (!config.llm.enabled) {
-        console.log("ℹ️  LLM desactivado (falta LLM_API_KEY): se usaron plantillas. Actívalo en .env para contenido experto.");
+        console.log("ℹ️  LLM desactivado (LLM_ENABLED=0): se usaron plantillas.");
+      } else if (!config.llm.apiKey) {
+        console.log("ℹ️  Generado con IA gratuita anónima (Kilo, sin clave). Para modelos premium pon LLM_API_KEY en .env.");
       }
       break;
     }
@@ -163,6 +167,11 @@ async function main(): Promise<void> {
       break;
     }
 
+    case "llm:check": {
+      await checkLlm(config);
+      break;
+    }
+
     case "panel": {
       const port = Number(process.env.PANEL_PORT ?? 4000);
       try {
@@ -234,6 +243,48 @@ async function runCycle(config: ReturnType<typeof loadConfig>, store: Store): Pr
   }
   const outcome = await publishDue(config, store);
   if (outcome.published + outcome.failed + outcome.skipped > 0) logOutcome(outcome);
+}
+
+/** Comprueba la conexión con la IA y muestra el proveedor en uso. */
+async function checkLlm(config: AgentConfig): Promise<void> {
+  console.log("🤖 Comunicación con la IA:");
+  if (!config.llm.enabled) {
+    console.log("  ✖ Desactivada (LLM_ENABLED=0). El agente generará con plantillas.");
+    console.log("    Actívala quitando LLM_ENABLED=0 del .env, o pon LLM_API_KEY.");
+    return;
+  }
+  if (config.llm.apiKey) {
+    console.log(`  ✓ LLM activo — proveedor configurado: ${config.llm.provider}`);
+    console.log(`      baseUrl: ${config.llm.baseUrl}`);
+    console.log(`      modelo : ${config.llm.model}`);
+  } else {
+    console.log("  ✓ LLM activo — gratis sin clave (Kilo Code, anónimo)");
+    console.log("      baseUrl: https://api.kilo.ai/api/gateway");
+    console.log("      modelo : openrouter/free (auto-routing a modelos :free)");
+    console.log("      Nota  : tier anónimo; si está saturado, la generación cae a plantillas.");
+  }
+  process.stdout.write("  Probando conexión… ");
+  const t0 = Date.now();
+  try {
+    const answer = await chat(
+      {
+        baseUrl: config.llm.baseUrl,
+        apiKey: config.llm.apiKey ?? "",
+        model: config.llm.model,
+        temperature: 0.3,
+        timeoutMs: 30_000,
+      },
+      [{ role: "user", content: "Responde solo con la palabra: ok" }],
+      1,
+    );
+    console.log(`✓ respuesta en ${((Date.now() - t0) / 1000).toFixed(1)}s: “${answer.slice(0, 60)}”`);
+  } catch (err) {
+    console.log(`✖ falló (${err instanceof Error ? err.message : err})`);
+    if (!config.llm.apiKey) {
+      console.log("    El servicio anónimo puede estar saturado; reintenta en un momento.");
+      console.log("    Para una IA más estable, añade una key gratis (sin tarjeta) al .env — ver .env.example.");
+    }
+  }
 }
 
 function logOutcome(outcome: { published: number; failed: number; skipped: number; dryRun: boolean }): void {

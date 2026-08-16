@@ -13,6 +13,8 @@ export interface LlmOptions {
   apiKey: string;
   model: string;
   temperature?: number;
+  /** Aborta la petición tras este tiempo (ms). Útil para proveedores anónimos lentos. */
+  timeoutMs?: number;
 }
 
 export async function chat(
@@ -40,28 +42,42 @@ export async function chat(
 
 async function chatOnce(opts: LlmOptions, messages: ChatMessage[]): Promise<string> {
   const url = `${opts.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-  // Streaming SSE: necesario para LLM locales lentos (Ollama bufferiza la
-  // respuesta completa con stream:false y supera el headersTimeout de 5 min).
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${opts.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: opts.model,
-      messages,
-      temperature: opts.temperature ?? 0.8,
-      stream: true,
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    const err = new Error(`LLM error ${res.status}: ${body.slice(0, 500)}`) as Error & { status?: number };
-    err.status = res.status;
-    throw err;
+  // Timeout opcional: evita que un proveedor anónimo/colgado bloquee la generación.
+  const controller = opts.timeoutMs ? new AbortController() : undefined;
+  const timer = opts.timeoutMs
+    ? setTimeout(() => {
+        const err = new Error(`LLM timeout tras ${opts.timeoutMs} ms`) as Error & { status?: number };
+        err.status = 504;
+        controller!.abort(err);
+      }, opts.timeoutMs)
+    : undefined;
+  try {
+    // Streaming SSE: necesario para LLM locales lentos (Ollama bufferiza la
+    // respuesta completa con stream:false y supera el headersTimeout de 5 min).
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.apiKey}`,
+      },
+      signal: controller?.signal,
+      body: JSON.stringify({
+        model: opts.model,
+        messages,
+        temperature: opts.temperature ?? 0.8,
+        stream: true,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      const err = new Error(`LLM error ${res.status}: ${body.slice(0, 500)}`) as Error & { status?: number };
+      err.status = res.status;
+      throw err;
+    }
+    return await streamContent(res);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return streamContent(res);
 }
 
 /** Consume una respuesta SSE de chat completions y devuelve el texto completo. */
