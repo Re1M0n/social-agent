@@ -1,5 +1,10 @@
 # 🤖 Social Agent — Agente de marketing en redes sociales
 
+![CI](https://github.com/Re1M0n/social-agent/actions/workflows/ci.yml/badge.svg)
+![versión](https://img.shields.io/github/package-json/v/Re1M0n/social-agent)
+![licencia](https://img.shields.io/github/license/Re1M0n/social-agent)
+![Node](https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white)
+
 Agente que **ingiere tus ideas base, fotos y videos**, los convierte en publicaciones
 adaptadas a cada plataforma usando un **agente experto LLM** (estratega de marketing),
 y **publica de forma autónoma en varios canales** (Mastodon, Bluesky, X, LinkedIn,
