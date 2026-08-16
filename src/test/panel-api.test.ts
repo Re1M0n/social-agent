@@ -49,6 +49,9 @@ describe("Panel web: API de revisión y aprobación", () => {
 
     const config = loadConfig();
     config.dataFile = dataFile;
+    // Hermético: no depender de un .env local (CI no lo tiene).
+    config.dryRun = true;
+    config.channels.mastodon.enabled = true;
     server = startPanel(config, 0);
     await new Promise<void>((resolve) => server.once("listening", resolve));
     const addr = server.address();
