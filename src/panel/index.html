@@ -3,186 +3,559 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0c10">
 <title>Social Agent · Panel de revisión</title>
 <style>
+  /* ── Sistema de diseño (design-taste v1): tokens ───────────────────── */
   :root {
-    --bg: #0f1115; --card: #171a21; --card2: #1e222c; --border: #2a2f3a;
-    --text: #e8eaef; --muted: #9aa3b2; --accent: #6c8cff; --ok: #3ecf8e; --err: #ff5d5d; --warn: #ffc94d;
+    --bg: #0a0c10;
+    --surface: #12151b;
+    --surface-2: #1a1f27;
+    --surface-3: #212833;
+    --field: #0d1015;
+    --border: #232a35;
+    --border-strong: #333d4c;
+    --text: #e8ebf1;
+    --text-2: #9aa4b4;
+    --text-3: #69748a;
+    --accent: #409cff;
+    --accent-strong: #6cb4ff;
+    --accent-soft: rgba(64, 156, 255, .12);
+    --accent-border: rgba(64, 156, 255, .45);
+    --ok: #34d399;
+    --ok-soft: rgba(52, 211, 153, .12);
+    --err: #f87171;
+    --err-soft: rgba(248, 113, 113, .1);
+    --warn: #fbbf24;
+    --warn-soft: rgba(251, 191, 36, .1);
+    --radius-card: 14px;
+    --radius-ctl: 9px;
+    --shadow-card: inset 0 1px 0 rgba(255, 255, 255, .025), 0 12px 32px -20px rgba(0, 0, 0, .65);
+    --font: "Geist", "Satoshi", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 20px; }
-  h1 { font-size: 20px; display: flex; align-items: center; gap: 10px; }
-  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 18px; }
-  .badge { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-  .badge.dry { background: rgba(255,201,77,.15); color: var(--warn); border: 1px solid rgba(255,201,77,.4); }
-  .badge.live { background: rgba(62,207,142,.15); color: var(--ok); border: 1px solid rgba(62,207,142,.4); }
-  .badge.err { background: rgba(255,93,93,.15); color: var(--err); border: 1px solid rgba(255,93,93,.4); }
-  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
-  .chip { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: var(--card); border: 1px solid var(--border); padding: 3px 10px; border-radius: 999px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; }
-  .dot.on { background: var(--ok); } .dot.off { background: #555d6b; }
-  button { cursor: pointer; border-radius: 8px; border: 1px solid var(--border); background: var(--card2); color: var(--text); padding: 6px 14px; font-size: 13px; transition: filter .15s; }
-  button:hover { filter: brightness(1.2); }
-  button.primary { background: var(--accent); border-color: transparent; color: #0b0e14; font-weight: 600; }
-  button.ok { background: var(--ok); border-color: transparent; color: #0b0e14; font-weight: 600; }
-  button.danger { background: rgba(255,93,93,.12); color: var(--err); border-color: rgba(255,93,93,.35); }
-  button:disabled { opacity: .4; cursor: not-allowed; }
-  .mode-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  .mode-toggle button { border: none; border-radius: 0; background: var(--card2); padding: 6px 12px; }
-  .mode-toggle button.active { background: var(--accent); color: #0b0e14; font-weight: 600; }
-  .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
-  .tab { border-radius: 8px 8px 0 0; border-bottom: 2px solid transparent; }
-  .tab.active { border-bottom-color: var(--accent); background: var(--card); color: var(--text); }
-  .tab .cnt { color: var(--muted); font-size: 12px; }
-  .item { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 18px; }
-  .item-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-  .item-title { font-weight: 600; }
-  .item-kind { font-size: 11px; color: var(--muted); background: var(--card2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; }
+  html { color-scheme: dark; }
+  body {
+    background: var(--bg);
+    background-image: radial-gradient(1100px 520px at 78% -12%, rgba(64, 156, 255, .07), transparent 62%);
+    background-attachment: fixed;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 18px 20px 72px; }
+  code { font-family: var(--mono); font-size: .92em; color: var(--accent-strong); }
+  a { color: var(--accent-strong); }
+
+  /* Iconos SVG (stroke 1.75, consistente) */
+  .ic { display: inline-block; width: 16px; height: 16px; flex: none; vertical-align: -3px; }
+  .ic-sm { width: 14px; height: 14px; }
+  .ic-lg { width: 20px; height: 20px; }
+
+  /* ── Cabecera ──────────────────────────────────────────────────────── */
+  .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .brand-mark {
+    width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+    background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent-strong);
+  }
+  .brand-name { font-size: 15px; font-weight: 650; letter-spacing: -.012em; line-height: 1.2; }
+  .brand-sub { font-size: 11px; color: var(--text-3); }
+  .toolbar { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+    font-family: var(--mono); font-size: 10.5px; font-weight: 650; letter-spacing: .05em;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .badge.dry { background: var(--warn-soft); color: var(--warn); border: 1px solid rgba(251, 191, 36, .4); }
+  .badge.live { background: var(--ok-soft); color: var(--ok); border: 1px solid rgba(52, 211, 153, .4); }
+  .badge.err { background: var(--err-soft); color: var(--err); border: 1px solid rgba(248, 113, 113, .4); }
+  .badge.demo { background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent-border); }
+  .badge.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  @media (prefers-reduced-motion: no-preference) {
+    .badge.live::before { animation: pulse 2.2s ease-in-out infinite; }
+  }
+
+  .seg {
+    display: inline-flex; gap: 2px; padding: 3px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 11px;
+  }
+  .seg button {
+    display: inline-flex; align-items: center; gap: 7px; border: none; background: transparent;
+    border-radius: 8px; padding: 6px 12px; color: var(--text-2); font: inherit; font-size: 13px;
+    font-weight: 550; cursor: pointer; transition: background .18s, color .18s, box-shadow .18s;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button.active { background: var(--surface-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
+
+  /* ── Botones ───────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; border-radius: var(--radius-ctl);
+    border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text);
+    padding: 7px 13px; font: inherit; font-size: 13px; font-weight: 550; cursor: pointer;
+    text-decoration: none; transition: background .18s, border-color .18s, color .18s, transform .18s cubic-bezier(.16, 1, .3, 1);
+  }
+  .btn:hover { background: var(--surface-3); border-color: #3f4a5c; }
+  .btn:active { transform: translateY(1px) scale(.985); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .btn-primary { background: var(--accent); border-color: transparent; color: #081322; font-weight: 600; }
+  .btn-primary:hover { background: var(--accent-strong); color: #050d18; border-color: transparent; }
+  .btn-ok { background: var(--ok); border-color: transparent; color: #05261c; font-weight: 600; }
+  .btn-ok:hover { background: #4ade9f; color: #05261c; border-color: transparent; }
+  .btn-danger { background: var(--err-soft); border-color: rgba(248, 113, 113, .35); color: var(--err); }
+  .btn-danger:hover { background: rgba(248, 113, 113, .18); border-color: rgba(248, 113, 113, .5); }
+  .btn-ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+  .btn-ghost:hover { background: var(--surface-2); color: var(--text); }
+  .btn-icon { padding: 7px; }
+
+  /* ── Chips de canales ──────────────────────────────────────────────── */
+  .statusbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 0; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2);
+    background: var(--surface); border: 1px solid var(--border); padding: 4px 11px; border-radius: 999px;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #4c5668; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, .14); }
+  @media (prefers-reduced-motion: no-preference) {
+    .dot.on { animation: pulse 2.4s ease-in-out infinite; }
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+  /* ── Banners ───────────────────────────────────────────────────────── */
+  .banner {
+    display: flex; align-items: flex-start; gap: 10px; background: var(--surface);
+    border: 1px solid var(--border); border-left: 3px solid var(--warn); border-radius: 12px;
+    padding: 12px 14px; font-size: 13px; color: var(--text-2); margin-bottom: 14px;
+  }
+  .banner .ic { margin-top: 2px; color: var(--warn); }
+  .banner b { color: var(--text); font-weight: 600; }
+  .banner code { background: none; border: none; padding: 0; }
+  .banner.info { border-left-color: var(--accent); }
+  .banner.info .ic { color: var(--accent-strong); }
+  .banner.err { border-left-color: var(--err); }
+  .banner.err .ic { color: var(--err); }
+
+  /* ── Pestañas ──────────────────────────────────────────────────────── */
+  .tabs {
+    display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 18px 0 20px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .tab {
+    display: inline-flex; align-items: center; gap: 7px; background: none; border: none;
+    border-bottom: 2px solid transparent; padding: 9px 13px; margin-bottom: -1px;
+    color: var(--text-2); font: inherit; font-size: 13.5px; font-weight: 550; cursor: pointer;
+    white-space: nowrap; transition: color .18s, border-color .18s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab .ic { color: var(--text-3); transition: color .18s; }
+  .tab.active .ic { color: var(--accent-strong); }
+  .tab .cnt {
+    font-family: var(--mono); font-size: 11px; color: var(--text-2);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
+  }
+  .tab.active .cnt { color: var(--accent-strong); border-color: var(--accent-border); }
+
+  /* ── Entrada en cascada de tarjetas ────────────────────────────────── */
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes shimmer { to { transform: translateX(100%); } }
+  @media (prefers-reduced-motion: no-preference) {
+    .item, .post, .cfg-card, .gen-box { animation: rise .5s cubic-bezier(.16, 1, .3, 1) both; }
+  }
+
+  /* ── Ítems de contenido y posts ────────────────────────────────────── */
+  .item {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+    padding: 18px; margin-bottom: 16px; box-shadow: var(--shadow-card);
+    animation-delay: calc(var(--i, 0) * 45ms);
+    transition: transform .25s cubic-bezier(.16, 1, .3, 1), border-color .25s;
+  }
+  .item:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .item-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .item-title { font-weight: 600; font-size: 14.5px; letter-spacing: -.005em; }
+  .item-kind {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-2);
+    background: var(--surface-2); border: 1px solid var(--border); padding: 2px 9px;
+    border-radius: 999px; font-weight: 550;
+  }
+  .item-kind .ic { color: var(--text-3); }
   .item-media { display: flex; gap: 8px; margin-bottom: 12px; }
-  .item-media img, .item-media video { max-height: 90px; border-radius: 8px; border: 1px solid var(--border); }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
-  .post { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-  .post-head { display: flex; align-items: center; gap: 8px; }
-  .plat { font-weight: 700; font-size: 13px; padding: 2px 10px; border-radius: 6px; color: #fff; }
-  .status { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
-  .status.draft { background: #3b4252; color: #cdd6e4; }
-  .status.scheduled { background: rgba(108,140,255,.18); color: #a9bdff; }
-  .status.published { background: rgba(62,207,142,.16); color: var(--ok); }
-  .status.failed { background: rgba(255,93,93,.16); color: var(--err); }
+  .item-media img, .item-media video { max-height: 90px; border-radius: 10px; border: 1px solid var(--border); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .post {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; display: flex; flex-direction: column; gap: 12px;
+    animation-delay: calc(.06s + var(--i, 0) * 40ms);
+    transition: transform .25s cubic-bezier(.16, 1, .3, 1), border-color .25s;
+  }
+  .post:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .post-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .plat {
+    display: inline-flex; align-items: center; gap: 7px; font-weight: 650; font-size: 12.5px;
+    color: #fff; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  }
+  .plat .pmark {
+    width: 15px; height: 15px; border-radius: 5px; display: grid; place-items: center;
+    font-size: 9px; font-weight: 700; background: rgba(255, 255, 255, .2); color: #fff;
+  }
+  .status { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 600; letter-spacing: .02em; }
+  .status.draft { background: #39414f; color: #cdd6e4; }
+  .status.scheduled { background: rgba(64, 156, 255, .16); color: #9cc4ff; }
+  .status.published { background: var(--ok-soft); color: var(--ok); }
+  .status.failed { background: var(--err-soft); color: var(--err); }
   .spacer { flex: 1; }
-  .counter { font-size: 12px; color: var(--muted); }
+  .counter { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); }
   .counter.over { color: var(--err); font-weight: 700; }
-  .prev { background: #fff; color: #111; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
-  .prev .p-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .prev .p-avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; color: #fff; }
+
+  .post textarea, .gen-box textarea {
+    width: 100%; background: var(--field); color: var(--text); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 13.5px; line-height: 1.55;
+    resize: vertical; min-height: 96px; transition: border-color .18s, box-shadow .18s;
+  }
+  .post textarea.over { border-color: var(--err); }
+  .post textarea:focus, .gen-box textarea:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  /* Vista previa de plataforma (mock claro dentro del panel oscuro) */
+  .prev { background: #fff; color: #16181d; border-radius: 12px; padding: 12px 14px; font-size: 13px; overflow: hidden; }
+  .prev .p-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .prev .p-avatar {
+    width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+    font-size: 12px; font-weight: 700; color: #fff; flex: none;
+  }
   .prev .p-name { font-weight: 700; font-size: 12px; }
-  .prev .p-handle { font-size: 11px; color: #555; }
+  .prev .p-handle { font-size: 11px; color: #5a6472; }
   .prev .p-text { white-space: pre-wrap; word-break: break-word; }
-  .prev .p-more { color: #555; }
-  .prev .p-actions { display: flex; gap: 14px; margin-top: 8px; color: #666; font-size: 13px; }
-  .prev .p-media { margin-top: 8px; border-radius: 8px; max-width: 100%; max-height: 140px; }
+  .prev .p-more { color: #5a6472; }
+  .prev .p-actions { display: flex; gap: 16px; margin-top: 9px; color: #7b8494; }
+  .prev .p-actions .ic { width: 15px; height: 15px; }
+  .prev .p-media { margin-top: 8px; border-radius: 9px; max-width: 100%; max-height: 140px; }
+  .prev-media { display: grid; place-items: center; height: 86px; border-radius: 9px; margin-top: 8px; color: rgba(255, 255, 255, .9); }
   .prev .p-hash { color: #1a73e8; }
-  textarea { width: 100%; background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font: inherit; resize: vertical; min-height: 90px; }
-  textarea.over { border-color: var(--err); }
-  .tags { font-size: 12px; color: var(--muted); }
-  .tags input { background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; width: 100%; font: inherit; }
-  details { font-size: 12px; color: var(--muted); }
-  details summary { cursor: pointer; }
-  details p { margin-top: 6px; background: #12151c; border-radius: 6px; padding: 8px; color: var(--muted); }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  .meta { font-size: 12px; color: var(--muted); }
-  .meta a { color: var(--accent); }
-  .error { color: var(--err); font-size: 12px; background: rgba(255,93,93,.08); border-radius: 6px; padding: 6px 8px; }
+
   .variants { display: flex; flex-direction: column; gap: 6px; }
-  .v-title { font-size: 12px; color: var(--muted); }
-  .variant { display: flex; align-items: center; gap: 8px; background: #12151c; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
-  .v-label { font-weight: 700; color: var(--accent); }
-  .v-text { flex: 1; color: var(--muted); }
+  .v-title { font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 6px; font-weight: 550; }
+  .variant {
+    display: flex; align-items: center; gap: 10px; background: var(--field);
+    border: 1px solid var(--border); border-radius: 9px; padding: 7px 10px; font-size: 12.5px;
+  }
+  .v-label {
+    font-family: var(--mono); font-weight: 700; color: var(--accent-strong);
+    background: var(--accent-soft); border-radius: 6px; padding: 1px 7px; font-size: 11px;
+  }
+  .v-text { flex: 1; color: var(--text-2); min-width: 0; }
   .v-use { padding: 2px 10px; font-size: 11px; }
-  .savestate { font-size: 11px; color: var(--muted); min-height: 15px; }
-  .empty { color: var(--muted); text-align: center; padding: 40px 0; }
-  .banner { background: rgba(255,201,77,.1); border: 1px solid rgba(255,201,77,.35); color: var(--warn); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
-  .gen-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 16px; }
-  .gen-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-  .gen-box h3 { font-size: 14px; }
-  .gen-drop { border: 2px dashed var(--border); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); font-size: 13px; }
-  .gen-drop.over { border-color: var(--accent); color: var(--accent); }
+
+  .tags { font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 8px; }
+  .tags input {
+    flex: 1; background: var(--field); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 12.5px;
+    transition: border-color .18s, box-shadow .18s;
+  }
+  .tags input:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  details { font-size: 12px; color: var(--text-2); }
+  details summary { cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: 550; }
+  details summary .ic { color: var(--text-3); }
+  details p { margin-top: 7px; background: var(--field); border-radius: 8px; padding: 9px 11px; color: var(--text-2); line-height: 1.55; }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .savestate { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); min-height: 16px; }
+  .meta { font-size: 12px; color: var(--text-2); }
+  .meta.ok-tag { color: var(--ok); display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
+  .error {
+    color: var(--err); font-size: 12px; background: var(--err-soft);
+    border: 1px solid rgba(248, 113, 113, .3); border-radius: 8px; padding: 7px 10px;
+  }
+
+  /* ── Estados vacíos, skeleton, conexión ────────────────────────────── */
+  .empty { text-align: center; padding: 64px 20px; color: var(--text-3); }
+  .empty .empty-ic { width: 30px; height: 30px; margin: 0 auto 12px; display: block; opacity: .65; }
+  .empty .empty-title { color: var(--text-2); font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .skel {
+    position: relative; overflow: hidden; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-card); padding: 18px; margin-bottom: 16px;
+  }
+  .skel-line { height: 12px; border-radius: 6px; background: var(--surface-3); margin-bottom: 10px; }
+  .skel-line:nth-child(2) { width: 68%; }
+  .skel-line:nth-child(3) { width: 84%; }
+  .skel-grid { height: 96px; border-radius: 10px; background: var(--surface-3); margin-top: 8px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .skel::after {
+      content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .05), transparent);
+      animation: shimmer 1.6s infinite;
+    }
+  }
+
+  /* ── Pestaña de generación ─────────────────────────────────────────── */
+  .gen-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 16px; }
+  .gen-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+    padding: 16px; display: flex; flex-direction: column; gap: 11px; box-shadow: var(--shadow-card);
+    animation-delay: calc(var(--i, 0) * 45ms);
+    transition: transform .25s cubic-bezier(.16, 1, .3, 1), border-color .25s;
+  }
+  .gen-box:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .gen-box h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
+  .gen-box h3 .ic { color: var(--accent-strong); }
+  .gen-box input[type="file"] { font-size: 12px; color: var(--text-2); }
+  .gen-box input[type="text"] {
+    background: var(--field); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--radius-ctl); padding: 8px 11px; font: inherit;
+    transition: border-color .18s, box-shadow .18s;
+  }
+  .gen-box input[type="text"]:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .gen-drop {
+    border: 1.5px dashed var(--border-strong); border-radius: 10px; padding: 20px; text-align: center;
+    color: var(--text-3); font-size: 13px; transition: border-color .18s, color .18s, background .18s;
+  }
+  .gen-drop.over { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
   .gen-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-  .gen-box input[type="file"] { font-size: 12px; }
-  .gen-item-thumb { max-height: 60px; border-radius: 6px; border: 1px solid var(--border); }
-  /* Página ⚙️ Config y wizard del primer arranque */
-  .cfg { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
-  .cfg-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
-  .cfg-card h3 { font-size: 14px; margin-bottom: 10px; }
-  .cfg-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
-  .cfg-summary > div { background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
-  .cfg-summary .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  .cfg-summary .v { font-weight: 600; word-break: break-all; }
-  .cfg-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
-  .cfg-option { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
-  .cfg-option.sel { border-color: var(--accent); background: rgba(108,140,255,.08); }
-  .cfg-option .t { font-weight: 600; font-size: 13px; }
-  .cfg-option .d { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .gen-item-thumb { max-height: 56px; border-radius: 8px; border: 1px solid var(--border); }
+  .sec-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; letter-spacing: -.005em; margin: 6px 0 14px; }
+  .sec-head .ic { color: var(--accent-strong); }
+
+  /* ── Página Config: bento asimétrico 2 columnas ────────────────────── */
+  .cfg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 1240px; }
+  @media (max-width: 1000px) { .cfg { grid-template-columns: 1fr; } }
+  .cfg-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+    padding: 18px; box-shadow: var(--shadow-card);
+    animation-delay: calc(var(--i, 0) * 45ms);
+    transition: transform .25s cubic-bezier(.16, 1, .3, 1), border-color .25s;
+  }
+  .cfg-card:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .cfg-card h3 {
+    display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600;
+    letter-spacing: -.005em; margin-bottom: 12px;
+  }
+  .cfg-card h3 .ic { color: var(--accent-strong); }
+  .cfg-card--wide { grid-column: 1 / -1; }
+  .cfg-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 10px; }
+  .cfg-summary > div { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .cfg-summary .k { font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; margin-bottom: 3px; }
+  .cfg-summary .v { font-weight: 600; font-size: 13px; word-break: break-all; }
+  .cfg-summary .v.mono { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+
+  .cfg-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); gap: 10px; }
+  .cfg-option {
+    position: relative; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px; cursor: pointer;
+    transition: border-color .18s, background .18s, transform .18s cubic-bezier(.16, 1, .3, 1);
+  }
+  .cfg-option:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .cfg-option:active { transform: translateY(0) scale(.99); }
+  .cfg-option.sel { border-color: var(--accent-border); background: var(--accent-soft); }
+  .cfg-option .t { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+  .cfg-option .t .ic { color: var(--accent-strong); }
+  .cfg-option .d { font-size: 12px; color: var(--text-2); margin-top: 5px; line-height: 1.5; }
+  .opt-check { margin-left: auto; color: var(--accent-strong); }
+  .opt-state.on { margin-left: auto; color: var(--ok); }
+  .opt-state.off { margin-left: auto; color: var(--text-3); }
+
+  .cfg-field { display: flex; flex-direction: column; gap: 5px; }
+  .cfg-field label { font-size: 12px; color: var(--text-2); font-weight: 550; }
+  .cfg-field input, .cfg-field select, .cfg-ch-head select, .cfg-cll-fields select {
+    width: 100%; background: var(--field); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--radius-ctl); padding: 8px 11px; font: inherit; font-size: 13px;
+    transition: border-color .18s, box-shadow .18s;
+  }
+  .cfg-field input:focus, .cfg-field select:focus, .cfg-ch-head select:focus, .cfg-cll-fields select:focus {
+    outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft);
+  }
   .cfg-fields { display: flex; flex-direction: column; gap: 10px; }
-  .cfg-field label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
-  .cfg-field input { width: 100%; background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; }
-  .cfg-result { margin-top: 12px; }
-  .cfg-result .ok, .cfg-result .err { border-radius: 8px; padding: 8px 12px; font-size: 13px; }
-  .cfg-result .ok { background: rgba(62,207,142,.1); color: var(--ok); }
-  .cfg-result .err { background: rgba(255,93,93,.1); color: var(--err); }
-  .cfg-link { display: inline-block; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card2); color: var(--text); text-decoration: none; font-size: 13px; }
-  .cfg-link:hover { filter: brightness(1.2); }
-  .cfg-path { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; background: #12151c; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; word-break: break-all; }
-  .cfg-ch-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--card2); }
+  .cfg-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .cfg-result { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .cfg-result .ok, .cfg-result .err {
+    display: flex; align-items: center; gap: 8px; border-radius: 9px; padding: 9px 12px; font-size: 13px;
+  }
+  .cfg-result .ok { background: var(--ok-soft); color: var(--ok); }
+  .cfg-result .err { background: var(--err-soft); color: var(--err); }
+
+  .cfg-ch-row {
+    border: 1px solid var(--border); border-radius: 11px; padding: 11px 13px; margin-bottom: 9px;
+    background: var(--surface-2); transition: border-color .18s;
+  }
+  .cfg-ch-row:hover { border-color: var(--border-strong); }
   .cfg-ch-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-  .cfg-ch-head .t { font-weight: 600; font-size: 13px; }
-  .cfg-ch-head select { background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font: inherit; }
-  .cfg-connector { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--card2); }
-  .cfg-conn-name { background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font: inherit; font-weight: 600; min-width: 170px; }
-  .cfg-del { background: none; border: none; font-size: 15px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
-  .cfg-del:hover { background: rgba(255,93,93,.15); }
-  .cfg-cll-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-top: 10px; }
-  .cfg-cll-fields .cfg-field { margin: 0; }
-  .cfg-cll-fields input { padding: 5px 8px; font-size: 12px; }
-  .cfg-cll-fields select { background: #12151c; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 12px; }
-  #wizardOverlay { position: fixed; inset: 0; background: rgba(10,12,16,.85); backdrop-filter: blur(3px); display: grid; place-items: center; z-index: 50; padding: 20px; overflow: auto; }
-  #wizardCard { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 22px; max-width: 720px; width: 100%; max-height: 92vh; overflow: auto; }
-  #wizardCard h2 { font-size: 18px; margin-bottom: 6px; }
-  #wizardCard .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .cfg-ch-head .t { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+  .ch-mark {
+    display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px;
+    color: #fff; font-size: 10px; font-weight: 700; flex: none;
+  }
+  .cfg-connector {
+    border: 1px solid var(--border); border-radius: 12px; padding: 13px; margin-bottom: 10px;
+    background: var(--surface-2); transition: border-color .18s;
+  }
+  .cfg-connector:hover { border-color: var(--border-strong); }
+  .cfg-conn-name {
+    background: var(--field); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; font: inherit; font-weight: 600; min-width: 160px; flex: 1;
+    transition: border-color .18s, box-shadow .18s;
+  }
+  .cfg-conn-name:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .cfg-cll-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 12px; }
+  .cfg-cll-fields .cfg-field input { padding: 6px 9px; font-size: 12.5px; }
+  .cfg-cll-fields .cfg-field select { padding: 6px 9px; font-size: 12.5px; }
+  .cfg-link { text-decoration: none; }
+  .cfg-path {
+    font-family: var(--mono); font-size: 12px; background: var(--field); border: 1px solid var(--border);
+    border-radius: 7px; padding: 2px 8px; word-break: break-all; color: var(--text-2);
+  }
+
+  /* ── Wizard de primer arranque ─────────────────────────────────────── */
+  #wizardOverlay {
+    position: fixed; inset: 0; background: rgba(7, 9, 12, .74); backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px); display: grid; place-items: center; z-index: 60; padding: 20px; overflow: auto;
+  }
+  #wizardCard {
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 20px; padding: 26px;
+    max-width: 760px; width: 100%; max-height: 92vh; overflow: auto;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04), 0 24px 80px -24px rgba(0, 0, 0, .8);
+  }
+  @media (prefers-reduced-motion: no-preference) { #wizardCard { animation: rise .45s cubic-bezier(.16, 1, .3, 1); } }
+  #wizardCard h2 { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 650; letter-spacing: -.012em; margin-bottom: 6px; }
+  #wizardCard h2 .ic { color: var(--accent-strong); }
+  #wizardCard .sub { color: var(--text-2); font-size: 13px; margin-bottom: 18px; max-width: 62ch; }
+
+  /* ── Accesibilidad ─────────────────────────────────────────────────── */
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>🤖 Social Agent <span class="badge dry" id="modeBadge">DRY-RUN</span></h1>
-  <div class="chips" id="chips"></div>
-  <div class="mode-toggle" role="group" aria-label="Modo del panel">
-    <button id="btnServer" class="active" onclick="switchMode('server')">🖥 Servidor</button>
-    <button id="btnDemo" onclick="switchMode('demo')">🧪 Demo</button>
+<div class="wrap">
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">
+      <svg class="ic ic-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.2L19 10l-5.1 1.8L12 17l-1.9-5.2L5 10l5.1-1.8z"/><circle cx="18.5" cy="5" r="1.2"/></svg>
+    </span>
+    <div>
+      <div class="brand-name">Social Agent</div>
+      <div class="brand-sub">Panel de revisión</div>
+    </div>
+    <span class="badge dry" id="modeBadge">DRY-RUN</span>
   </div>
-  <div class="spacer"></div>
-  <button onclick="refresh()">↻ Actualizar</button>
-  <button class="primary" onclick="approveAll()">✅ Aprobar todos los pendientes</button>
+  <div class="toolbar">
+    <div class="seg" role="group" aria-label="Modo del panel">
+      <button id="btnServer" class="active" aria-pressed="true" onclick="switchMode('server')">
+        <svg class="ic ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
+        Servidor
+      </button>
+      <button id="btnDemo" aria-pressed="false" onclick="switchMode('demo')">
+        <svg class="ic ic-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v5.5L4.8 17a2 2 0 0 0 1.8 3h10.8a2 2 0 0 0 1.8-3L14 8.5V3"/><path d="M7.5 14h9"/></svg>
+        Demo
+      </button>
+    </div>
+    <button class="btn" onclick="refresh()">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
+      Actualizar
+    </button>
+    <button class="btn btn-primary" onclick="approveAll()">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+      Aprobar pendientes
+    </button>
+  </div>
 </header>
 
-<div class="banner" id="dryBanner" hidden>
-  ⚠️ <b>Modo simulación (DRY_RUN=1)</b>: "Publicar" marca los posts como publicados sin tocar APIs reales.
-  Quita <code>DRY_RUN=1</code> del <code>.env</code> para publicar de verdad.
+<div class="statusbar" id="chips"></div>
+
+<div class="banner warn" id="dryBanner" hidden>
+  <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg>
+  <span><b>Modo simulación (DRY_RUN=1)</b>: "Publicar" marca los posts como publicados sin tocar APIs reales. Quita <code>DRY_RUN=1</code> del <code>.env</code> para publicar de verdad.</span>
 </div>
 
-<div class="banner" id="demoBanner" hidden style="border-color:rgba(108,140,255,.4);color:#a9bdff;background:rgba(108,140,255,.1)">
-  🧪 <b>Modo demo</b>: datos de ejemplo y acciones simuladas en tu navegador.
-  Cambia a <b>🖥 Servidor</b> si ejecutas <code>npm run panel</code>, o pulsa <b>🧪 Demo</b> para volver aquí.
+<div class="banner info" id="demoBanner" hidden>
+  <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v5.5L4.8 17a2 2 0 0 0 1.8 3h10.8a2 2 0 0 0 1.8-3L14 8.5V3"/><path d="M7.5 14h9"/></svg>
+  <span><b>Modo demo</b>: datos de ejemplo y acciones simuladas en tu navegador. Cambia a <b>Servidor</b> si ejecutas <code>npm run panel</code>, o pulsa <b>Demo</b> para volver aquí.</span>
 </div>
 
-<div class="banner" id="serverBanner" hidden style="border-color:rgba(255,93,93,.35);color:var(--err);background:rgba(255,93,93,.08)">
-  ⚠️ <b>Sin conexión con el servidor</b>: <span id="serverErrorText"></span>.
-  Ejecuta <code>npm run panel</code> y pulsa ↻ Actualizar, o cambia a
-  <button class="v-use" onclick="switchMode('demo')">🧪 Demo</button>.
+<div class="banner err" id="serverBanner" hidden>
+  <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+  <span><b>Sin conexión con el servidor</b>: <span id="serverErrorText"></span>. Ejecuta <code>npm run panel</code> y pulsa Actualizar, o cambia a <button class="btn v-use" onclick="switchMode('demo')">Demo</button>.</span>
 </div>
 
 <div class="tabs" id="tabs"></div>
 <div id="content"></div>
+</div>
 
 <script>
 "use strict";
+
+/* ── Iconos SVG (stroke 1.75, consistente) ─────────────────────────────── */
+const ICONS = {
+  spark: '<path d="M12 3l1.9 5.2L19 10l-5.1 1.8L12 17l-1.9-5.2L5 10l5.1-1.8z"/><circle cx="18.5" cy="5" r="1.2"/>',
+  server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  flask: '<path d="M9 3h6M10 3v5.5L4.8 17a2 2 0 0 0 1.8 3h10.8a2 2 0 0 0 1.8-3L14 8.5V3"/><path d="M7.5 14h9"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
+  send: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>',
+  retry: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>',
+  bolt: '<path d="M13 2L4 14h6l-1 8 9-12h-6z"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 1 3.5 10.9c-.7.5-1 1.2-1.1 2.1h-4.8c-.1-.9-.4-1.6-1.1-2.1A6 6 0 0 1 12 3z"/>',
+  video: '<rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l6-3v10l-6-3z"/>',
+  download: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/>',
+  box: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  chip: '<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  gauge: '<path d="M4 14a8 8 0 1 1 16 0"/><path d="M12 14l4-4M8 18h8"/>',
+  leaf: '<path d="M5 19C5 9 12 4 20 4c0 8-5 15-15 15z"/><path d="M5 19c3-6 8-10 12-12"/>',
+  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  terminal: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+  cloud: '<path d="M7 18a4 4 0 0 1-.6-8A6 6 0 0 1 18 10a3.5 3.5 0 0 1-.5 8z"/>',
+  broadcast: '<path d="M5 12a7 7 0 0 1 14 0"/><path d="M8.5 12a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="12" r="1"/>',
+  file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 13h6M9 17h6"/>',
+  eye: '<path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/>',
+  save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/>',
+  warn: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  checkCircle: '<circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 5-5"/>',
+  xCircle: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
+  pencil: '<path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z"/><path d="M14.5 6.5l3 3"/>',
+  comment: '<path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  retweet: '<path d="M17 2l4 4-4 4M21 6H8M7 22l-4-4 4-4M3 18h13"/>',
+  heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/>',
+  paperclip: '<path d="M21.4 11.1l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.6 3.6 0 0 1 5 5l-8.3 8.3a1.8 1.8 0 0 1-2.5-2.5l7.8-7.8"/>',
+  play: '<path d="M7 4l13 8-13 8z"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M3 17l5-5 4 4 3-3 6 6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+};
+function ic(n, cls) {
+  return `<svg class="ic ${cls || ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ""}</svg>`;
+}
+
 const PLATFORM_META = {
-  mastodon:  { emoji: "🐘", color: "#6364FF", name: "Mastodon" },
-  bluesky:   { emoji: "🦋", color: "#0085FF", name: "Bluesky" },
-  twitter:   { emoji: "𝕏",  color: "#111418", name: "X" },
-  linkedin:  { emoji: "💼", color: "#0A66C2", name: "LinkedIn" },
-  instagram: { emoji: "📷", color: "#E1306C", name: "Instagram" },
-  facebook:  { emoji: "👥", color: "#1877F2", name: "Facebook" },
-  tiktok:    { emoji: "🎵", color: "#000000", name: "TikTok" },
+  mastodon:  { mark: "M",  color: "#6364FF", name: "Mastodon" },
+  bluesky:   { mark: "B",  color: "#0085FF", name: "Bluesky" },
+  twitter:   { mark: "X",  color: "#111418", name: "X" },
+  linkedin:  { mark: "in", color: "#0A66C2", name: "LinkedIn" },
+  instagram: { mark: "IG", color: "#E1306C", name: "Instagram" },
+  facebook:  { mark: "f",  color: "#1877F2", name: "Facebook" },
+  tiktok:    { mark: "TT", color: "#111418", name: "TikTok" },
 };
 const TAB_LABEL = { draft: "Pendientes", scheduled: "Programados", published: "Publicados", failed: "Fallidos" };
+const TAB_ICONS = { draft: "list", scheduled: "clock", published: "checkCircle", failed: "xCircle" };
 const MEDIA_ACCEPT = ".jpg,.jpeg,.png,.gif,.webp,.heic,.bmp,.mp4,.mov,.webm,.mkv,.avi,.m4v,.mp3,.wav,.m4a,.ogg";
 let state = null;
 let tab = "draft";
-// Configuración de IA (página ⚙️ Config + wizard del primer arranque).
+// Configuración de IA (página Config + wizard del primer arranque).
 let cfg = null;
 let cfgLoading = false;
 let cfgSpeed = "equilibrado";
-let cfgChannels = {}; // estado habilitado/deshabilitado de cada canal (página ⚙️)
+let cfgChannels = {}; // estado habilitado/deshabilitado de cada canal (página Config)
 let cfgChannelLlm = {}; // IA por canal: id del conector asignado ("" = IA global)
 let cfgConnectors = null; // conectores de IA definidos en el panel (globales)
 let cfgPublication = { dryRun: true, autoPublish: false }; // modo de publicación
@@ -205,22 +578,22 @@ const DEMO_ITEMS = [
 ];
 const DEMO_POSTS = [
   { id: "demo-mastodon", contentItemId: "demo-lanzamiento", channel: "mastodon", status: "draft", tags: ["productividad", "lanzamiento"], createdAt: new Date(demoNow - 3600000).toISOString(),
-    text: "🚀 Lanzamiento: una app que convierte horas de organización en minutos.\n\nLa productividad no debería doler. Hoy empieza algo nuevo. #productividad #lanzamiento",
-    variants: ["🚀 Deja de perder horas: hoy lanzamos la app que organiza por ti.\n\n#productividad #lanzamiento", "¿Cuántas horas pierdes a la semana organizándote?\n\nNuestra app las convierte en minutos. #productividad #lanzamiento"],
+    text: "Lanzamiento: una app que convierte horas de organización en minutos.\n\nLa productividad no debería doler. Hoy empieza algo nuevo. #productividad #lanzamiento",
+    variants: ["Deja de perder horas: hoy lanzamos la app que organiza por ti.\n\n#productividad #lanzamiento", "¿Cuántas horas pierdes a la semana organizándote?\n\nNuestra app las convierte en minutos. #productividad #lanzamiento"],
     rationale: "Gancho con cifra implícita + beneficio directo; A/B de gancho." },
   { id: "demo-bluesky", contentItemId: "demo-lanzamiento", channel: "bluesky", status: "draft", tags: ["productividad"], createdAt: new Date(demoNow - 3600000).toISOString(),
-    text: "🚀 Hemos lanzado algo que nos quita horas: organización en minutos. Sin fricción. #productividad" },
+    text: "Hemos lanzado algo que nos quita horas: organización en minutos. Sin fricción. #productividad" },
   { id: "demo-twitter", contentItemId: "demo-lanzamiento", channel: "twitter", status: "draft", tags: ["productividad"], createdAt: new Date(demoNow - 3600000).toISOString(),
-    text: "🚀 Lanzamos la app que convierte horas de organización en minutos. #productividad" },
+    text: "Lanzamos la app que convierte horas de organización en minutos. #productividad" },
   { id: "demo-linkedin", contentItemId: "demo-linkedin", channel: "linkedin", status: "draft", tags: ["linkedin", "carrera"], createdAt: new Date(demoNow - 1800000).toISOString(),
-    text: "Empezar en LinkedIn da vértigo. Guía práctica: perfil completo, primer post honesto y constancia.\n\nLo que mejor funciona no es la estrategia perfecta, sino aparecer cada semana.\n\n👉 ¿Qué te frena a ti? Cuéntamelo en comentarios. #linkedin #carrera",
+    text: "Empezar en LinkedIn da vértigo. Guía práctica: perfil completo, primer post honesto y constancia.\n\nLo que mejor funciona no es la estrategia perfecta, sino aparecer cada semana.\n\n¿Qué te frena a ti? Cuéntamelo en comentarios. #linkedin #carrera",
     rationale: "Gancho por problema + guía práctica con CTA de conversación." },
   { id: "demo-instagram", contentItemId: "demo-lanzamiento", channel: "instagram", status: "draft", tags: ["productividad", "lanzamiento", "nuevaapp"], createdAt: new Date(demoNow - 3600000).toISOString(),
-    text: "🚀 Menos horas, más vida.\n\nLa organización no debería ser un trabajo extra. Nueva app: arrastra, programa, publica.\n\n#productividad #lanzamiento #nuevaapp" },
+    text: "Menos horas, más vida.\n\nLa organización no debería ser un trabajo extra. Nueva app: arrastra, programa, publica.\n\n#productividad #lanzamiento #nuevaapp" },
   { id: "demo-facebook", contentItemId: "demo-lanzamiento", channel: "facebook", status: "draft", tags: ["productividad"], createdAt: new Date(demoNow - 3600000).toISOString(),
     text: "¿Cuántas horas pierdes a la semana organizándote? Hoy lanzamos la app que lo reduce a minutos. Cuéntanos qué te parece." },
   { id: "demo-tiktok", contentItemId: "demo-lanzamiento", channel: "tiktok", status: "draft", tags: ["fyp", "productividad", "lanzamiento"], createdAt: new Date(demoNow - 3600000).toISOString(),
-    text: "POV: dejas de perder horas organizándote 😌\n\n#fyp #productividad #lanzamiento" },
+    text: "POV: dejas de perder horas organizándote\n\n#fyp #productividad #lanzamiento" },
 ];
 const demoStore = {
   state: {
@@ -268,7 +641,7 @@ async function demoApi(url, opts = {}) {
       for (const c of missing) {
         demoStore.state.posts.push({
           id: `demo-${itemId}-${c}-${Date.now()}`, contentItemId: itemId, channel: c, status: "draft",
-          text: `🚀 (Demo) Gancho de IA para ${c} sobre: ${item.title}`, tags: ["demo"], createdAt: new Date().toISOString(),
+          text: `(Demo) Gancho de IA para ${c} sobre: ${item.title}`, tags: ["demo"], createdAt: new Date().toISOString(),
         });
       }
       return { ok: true, generated: missing.length, ms: 0 };
@@ -276,9 +649,9 @@ async function demoApi(url, opts = {}) {
     const id = "demo-gen-" + Date.now();
     demoStore.state.items.push({ id, kind: "idea", title: "Demo: idea generada con IA", body: "Idea de ejemplo simulada.", mediaType: "text", ingestedAt: new Date().toISOString() });
     const demoPosts = [
-      ["mastodon", "🚀 (Demo) ¿Cuántas horas pierdes a la semana organizándote? Esta app las convierte en minutos. #productividad"],
-      ["bluesky", "🚀 (Demo) Hemos lanzado algo que te quita horas: organización en minutos. #productividad"],
-      ["twitter", "🚀 (Demo) Lanzamos la app que convierte horas en minutos. #productividad"],
+      ["mastodon", "(Demo) ¿Cuántas horas pierdes a la semana organizándote? Esta app las convierte en minutos. #productividad"],
+      ["bluesky", "(Demo) Hemos lanzado algo que te quita horas: organización en minutos. #productividad"],
+      ["twitter", "(Demo) Lanzamos la app que convierte horas en minutos. #productividad"],
     ];
     for (const [c, text] of demoPosts) {
       demoStore.state.posts.push({ id: `${id}-${c}`, contentItemId: id, channel: c, status: "draft", text, tags: ["productividad"], createdAt: new Date().toISOString() });
@@ -358,7 +731,7 @@ function demoConfig() {
   };
 }
 
-/** Copia la config del servidor a los borradores de la página ⚙️ Config. */
+/** Copia la config del servidor a los borradores de la página Config. */
 function syncCfgDrafts() {
   if (!cfg) return;
   cfgSpeed = (cfg.llm && cfg.llm.speed) || "equilibrado";
@@ -405,13 +778,13 @@ function updateModeUI() {
   const badge = document.getElementById("modeBadge");
   const dry = state ? state.dryRun : false;
   if (demoMode) {
-    badge.textContent = "DEMO estática";
-    badge.className = "badge dry";
+    badge.textContent = "Demo estática";
+    badge.className = "badge demo";
   } else if (!state) {
     badge.textContent = "SIN CONEXIÓN";
     badge.className = "badge err";
   } else {
-    badge.textContent = dry ? "DRY-RUN (simulación)" : "EN VIVO";
+    badge.textContent = dry ? "DRY-RUN · simulación" : "EN VIVO";
     badge.className = "badge " + (dry ? "dry" : "live");
   }
   document.getElementById("dryBanner").hidden = !dry || demoMode;
@@ -421,6 +794,8 @@ function updateModeUI() {
   document.getElementById("serverErrorText").textContent = serverError || "";
   document.getElementById("btnServer").classList.toggle("active", !demoMode);
   document.getElementById("btnDemo").classList.toggle("active", demoMode);
+  document.getElementById("btnServer").setAttribute("aria-pressed", String(!demoMode));
+  document.getElementById("btnDemo").setAttribute("aria-pressed", String(demoMode));
 }
 
 function apiFailed(msg) {
@@ -462,7 +837,7 @@ async function refresh() {
   fetchConfig();
 }
 
-/** Carga la configuración de IA (página ⚙️ + wizard del primer arranque). */
+/** Carga la configuración de IA (página Config + wizard del primer arranque). */
 async function fetchConfig() {
   if (demoMode) { cfg = demoConfig(); renderWizard(); return; }
   cfgLoading = true;
@@ -483,15 +858,30 @@ async function fetchConfig() {
   }
 }
 
+function skeletonHtml() {
+  return `<div class="skel"><div class="skel-line"></div><div class="skel-line"></div><div class="skel-line"></div><div class="skel-grid"></div></div>
+          <div class="skel"><div class="skel-line"></div><div class="skel-line"></div><div class="skel-grid"></div></div>
+          <div class="skel"><div class="skel-line"></div><div class="skel-line"></div><div class="skel-grid"></div></div>`;
+}
+
 function render() {
   updateModeUI();
 
   if (!state) {
     document.getElementById("chips").innerHTML = "";
     document.getElementById("tabs").innerHTML = "";
-    document.getElementById("content").innerHTML = serverError
-      ? `<div class="empty">⚠️ ${esc(serverError)}</div>`
-      : `<div class="empty">Conectando con el servidor…</div>`;
+    const root = document.getElementById("content");
+    if (serverError) {
+      root.innerHTML = `<div class="empty">${ic("xCircle", "empty-ic")}
+        <p class="empty-title">Sin conexión con el servidor</p>
+        <p class="meta">${esc(serverError)}</p>
+        <div class="actions" style="justify-content:center;margin-top:14px">
+          <button class="btn" onclick="switchMode('demo')">${ic("flask")} Probar demo</button>
+          <button class="btn" onclick="refresh()">${ic("refresh")} Reintentar</button>
+        </div></div>`;
+    } else {
+      root.innerHTML = skeletonHtml();
+    }
     return;
   }
 
@@ -499,16 +889,16 @@ function render() {
   document.getElementById("chips").innerHTML = state.channels.map((c) =>
     `<span class="chip"><span class="dot ${c.enabled ? "on" : "off"}"></span>${esc(c.name)}</span>`).join("");
 
-  // Tabs con contadores + pestaña de generación.
+  // Tabs con contadores + pestañas de generación y config.
   const counts = { draft: 0, scheduled: 0, published: 0, failed: 0 };
   state.posts.forEach((p) => counts[p.status] = (counts[p.status] || 0) + 1);
   const tabDefs = [
-    ...Object.keys(TAB_LABEL).map((t) => ({ id: t, label: TAB_LABEL[t], count: `(${counts[t]})` })),
-    { id: "generate", label: "⚡ Generar", count: "" },
-    { id: "config", label: "⚙️ Config", count: "" },
+    ...Object.keys(TAB_LABEL).map((t) => ({ id: t, label: TAB_LABEL[t], icon: TAB_ICONS[t], count: `(${counts[t]})` })),
+    { id: "generate", label: "Generar", icon: "bolt", count: "" },
+    { id: "config", label: "Config", icon: "gear", count: "" },
   ];
   document.getElementById("tabs").innerHTML = tabDefs.map((t) =>
-    `<button class="tab ${t.id === tab ? "active" : ""}" onclick="setTab('${t.id}')">${t.label} ${t.count ? `<span class="cnt">${t.count}</span>` : ""}</button>`).join("");
+    `<button class="tab ${t.id === tab ? "active" : ""}" onclick="setTab('${t.id}')">${ic(t.icon)}<span>${t.label}</span>${t.count ? `<span class="cnt">${t.count}</span>` : ""}</button>`).join("");
 
   if (tab === "generate") { renderGen(); return; }
   if (tab === "config") { renderConfig(); return; }
@@ -524,18 +914,20 @@ function render() {
 
   const root = document.getElementById("content");
   if (items.length === 0) {
-    root.innerHTML = `<div class="empty">Sin posts ${TAB_LABEL[tab].toLowerCase()}${tab === "draft" ? " — ejecuta <code>npm run generate</code> primero" : ""}.</div>`;
+    root.innerHTML = `<div class="empty">${ic(TAB_ICONS[tab], "empty-ic")}
+      <p class="empty-title">Sin posts ${TAB_LABEL[tab].toLowerCase()}</p>
+      <p class="meta">${tab === "draft" ? "Ejecuta <code>npm run generate</code> o usa la pestaña Generar para crear drafts." : "Aquí aparecerán cuando existan."}</p></div>`;
     return;
   }
-  root.innerHTML = items.map((item) => {
+  root.innerHTML = items.map((item, i) => {
     const itemPosts = byItem.get(item.id);
-    return `<div class="item">
+    return `<div class="item" style="--i:${i}">
       <div class="item-head">
         <span class="item-title">${esc(item.title)}</span>
-        <span class="item-kind">${item.kind === "media" ? "📎 media (" + item.mediaType + ")" : "💡 idea"}</span>
+        <span class="item-kind">${item.kind === "media" ? ic("paperclip") + " media · " + esc(item.mediaType || "?") : ic("bulb") + " idea"}</span>
       </div>
       ${itemMedia(item)}
-      <div class="grid">${itemPosts.map(postCard).join("")}</div>
+      <div class="grid">${itemPosts.map((p, j) => postCard(p, j)).join("")}</div>
     </div>`;
   }).join("");
 }
@@ -551,7 +943,7 @@ function itemMedia(item) {
   return `<div class="item-media">${tag}</div>`;
 }
 
-function postCard(p) {
+function postCard(p, i) {
   const meta = PLATFORM_META[p.channel];
   const limit = state.channels.find((c) => c.id === p.channel)?.limit ?? 500;
   const over = p.text.length > limit;
@@ -567,25 +959,25 @@ function postCard(p) {
   let actions = "";
   let metaLine = "";
   if (p.status === "draft") {
-    actions = `<button class="ok" onclick="publish('${p.id}')">🚀 Publicar ahora</button>
-               <button class="primary" onclick="schedule('${p.id}')">🕐 Programar</button>
-               <button class="danger" onclick="discard('${p.id}')">🗑 Descartar</button>`;
+    actions = `<button class="btn btn-ok" onclick="publish('${p.id}')">${ic("send")} Publicar ahora</button>
+               <button class="btn btn-primary" onclick="schedule('${p.id}')">${ic("clock")} Programar</button>
+               <button class="btn btn-danger" onclick="discard('${p.id}')">${ic("trash")} Descartar</button>`;
   } else if (p.status === "scheduled") {
     metaLine = `Programado: <b>${fmt(new Date(p.scheduledFor))}</b>`;
-    actions = `<button class="ok" onclick="publish('${p.id}')">🚀 Publicar ahora</button>
-               <button class="danger" onclick="discard('${p.id}')">🗑 Descartar</button>`;
+    actions = `<button class="btn btn-ok" onclick="publish('${p.id}')">${ic("send")} Publicar ahora</button>
+               <button class="btn btn-danger" onclick="discard('${p.id}')">${ic("trash")} Descartar</button>`;
   } else if (p.status === "published") {
     const url = p.postUrl?.startsWith("dry-run://") ? `<span>${esc(p.postUrl)}</span>` : `<a href="${esc(p.postUrl)}" target="_blank">${esc(p.postUrl)}</a>`;
     metaLine = `Publicado: <b>${fmt(new Date(p.publishedAt))}</b> · ${url}`;
   } else if (p.status === "failed") {
-    metaLine = `<div class="error">❌ ${esc(p.error)}</div>`;
-    actions = `<button class="ok" onclick="publish('${p.id}')">🔁 Reintentar</button>
-               <button class="danger" onclick="discard('${p.id}')">🗑 Descartar</button>`;
+    metaLine = `<div class="error">${esc(p.error)}</div>`;
+    actions = `<button class="btn btn-ok" onclick="publish('${p.id}')">${ic("retry")} Reintentar</button>
+               <button class="btn btn-danger" onclick="discard('${p.id}')">${ic("trash")} Descartar</button>`;
   }
 
-  return `<div class="post" data-id="${p.id}">
+  return `<div class="post" data-id="${p.id}" style="--i:${i}">
     <div class="post-head">
-      <span class="plat" style="background:${meta.color}">${meta.emoji} ${esc(meta.name)}</span>
+      <span class="plat" style="background:${meta.color}"><span class="pmark">${meta.mark}</span>${esc(meta.name)}</span>
       <span class="status ${p.status}">${statusLabel}</span>
       <span class="spacer"></span>
       <span class="counter ${over ? "over" : ""}">${p.text.length} / ${limit}</span>
@@ -593,14 +985,14 @@ function postCard(p) {
     ${platformPreview(p)}
     <textarea class="${over ? "over" : ""}" rows="4" data-field="text" data-id="${p.id}">${esc(p.text)}</textarea>
     ${p.variants && p.variants.length ? `<div class="variants">
-      <div class="v-title">🧪 Variantes A/B (ganchos alternativos)</div>
-      ${p.variants.map((v, i) => `<div class="variant"><span class="v-label">${String.fromCharCode(65 + i)}</span><span class="v-text">${esc(v.slice(0, 95))}${v.length > 95 ? "…" : ""}</span><button class="v-use" onclick="useVariant('${p.id}', ${i})">Usar</button></div>`).join("")}
+      <div class="v-title">${ic("flask", "ic-sm")} Variantes A/B · ganchos alternativos</div>
+      ${p.variants.map((v, k) => `<div class="variant"><span class="v-label">${String.fromCharCode(65 + k)}</span><span class="v-text">${esc(v.slice(0, 95))}${v.length > 95 ? "…" : ""}</span><button class="btn v-use" onclick="useVariant('${p.id}', ${k})">Usar</button></div>`).join("")}
     </div>` : ""}
     <div class="tags">Etiquetas:
       <input data-field="tags" data-id="${p.id}" value="${esc((p.tags || []).join(", "))}" placeholder="hashtags separados por coma">
     </div>
     <div class="savestate" data-save="${p.id}"></div>
-    ${p.rationale ? `<details><summary>🧠 Estrategia</summary><p>${esc(p.rationale)}</p></details>` : ""}
+    ${p.rationale ? `<details><summary>${ic("chip", "ic-sm")} Estrategia</summary><p>${esc(p.rationale)}</p></details>` : ""}
     ${mediaHtml}
     ${metaLine}
     <div class="actions">${actions}</div>
@@ -613,17 +1005,17 @@ function platformPreview(p) {
   const rest = p.text.split("\n").slice(1).join("\n");
   const more = p.channel === "linkedin" && p.text.length > 180 ? `<span class="p-more">…ver más</span>` : "";
   const base = `
-    <div class="p-head"><div class="p-avatar" style="background:${m.color}">${m.emoji}</div>
+    <div class="p-head"><div class="p-avatar" style="background:${m.color}">${m.mark}</div>
     <div><div class="p-name">@marca</div><div class="p-handle">${esc(m.name)} · ahora</div></div></div>`;
   const body = `<div class="p-text">${hashtagify(firstLine)}${rest ? "\n" + hashtagify(rest) : ""}${more}</div>`;
-  const actions = `<div class="p-actions"><span>💬</span><span>↻</span><span>♥</span></div>`;
+  const actions = `<div class="p-actions">${ic("comment", "ic-sm")}${ic("retweet", "ic-sm")}${ic("heart", "ic-sm")}</div>`;
   switch (p.channel) {
     case "linkedin":
-      return `<div class="prev" style="border-top:3px solid ${m.color}">${base}<div class="p-name" style="font-size:12px;color:#333">Publicación · ${p.text.length} caracteres</div>${body}${actions}</div>`;
+      return `<div class="prev" style="border-top:3px solid ${m.color}">${base}<div class="p-name" style="font-size:12px;color:#39414c">Publicación · ${p.text.length} caracteres</div>${body}${actions}</div>`;
     case "instagram":
-      return `<div class="prev" style="border-top:3px solid ${m.color}">${base}<div class="p-media" style="background:#ddd;height:90px;display:grid;place-items:center;color:#888">📷 Media</div><div class="p-text" style="margin-top:6px">${hashtagify(p.text.slice(0, 400))}</div>${actions}</div>`;
+      return `<div class="prev" style="border-top:3px solid ${m.color}">${base}<div class="prev-media" style="background:${m.color}">${ic("image", "ic-lg")}</div><div class="p-text" style="margin-top:6px">${hashtagify(p.text.slice(0, 400))}</div>${actions}</div>`;
     case "tiktok":
-      return `<div class="prev" style="border-top:3px solid ${m.color};background:#0f0f0f;color:#eee">${base}<div class="p-media" style="background:#222;height:100px;display:grid;place-items:center">🎬 Video</div><div class="p-text" style="margin-top:6px">${hashtagify(p.text.slice(0, 300))}</div></div>`;
+      return `<div class="prev" style="border-top:3px solid ${m.color};background:#0f0f12;color:#e9e9ee">${base}<div class="prev-media" style="background:#1c1c22">${ic("play", "ic-lg")}</div><div class="p-text" style="margin-top:6px">${hashtagify(p.text.slice(0, 300))}</div></div>`;
     default:
       return `<div class="prev" style="border-top:3px solid ${m.color}">${base}${body}${actions}</div>`;
   }
@@ -640,57 +1032,57 @@ function setTab(t) { tab = t; render(); }
 function renderGen() {
   const root = document.getElementById("content");
   const enabled = state.channels.filter((c) => c.enabled).length;
-  const cards = state.items.map((i) => {
-    const posts = state.posts.filter((p) => p.contentItemId === i.id);
+  const cards = state.items.map((it, idx) => {
+    const posts = state.posts.filter((p) => p.contentItemId === it.id);
     const missing = enabled - posts.length;
-    const thumb = i.mediaName
-      ? `<img class="gen-item-thumb" src="/media/${encodeURIComponent(i.mediaName)}" alt="">`
+    const thumb = it.mediaName
+      ? `<img class="gen-item-thumb" src="/media/${encodeURIComponent(it.mediaName)}" alt="">`
       : "";
-    return `<div class="item">
+    return `<div class="item" style="--i:${idx}">
       <div class="item-head">
-        <span class="item-title">${esc(i.title)}</span>
-        <span class="item-kind">${i.kind === "media" ? "📎 media (" + esc(i.mediaType || "?") + ")" : "💡 idea"}</span>
+        <span class="item-title">${esc(it.title)}</span>
+        <span class="item-kind">${it.kind === "media" ? ic("paperclip") + " media · " + esc(it.mediaType || "?") : ic("bulb") + " idea"}</span>
         <span class="spacer"></span>
         ${thumb}
       </div>
       <div class="meta">${posts.length}/${enabled} canales habilitados cubiertos</div>
       <div class="actions">
-        ${missing > 0 ? `<button class="primary" onclick="genItem('${i.id}')">✨ Generar (${missing})</button>` : `<span class="meta">✓ completo</span>`}
-        <button class="danger" onclick="deleteItem('${i.id}')" title="Eliminar este ítem">🗑</button>
+        ${missing > 0 ? `<button class="btn btn-primary" onclick="genItem('${it.id}')">${ic("spark")} Generar (${missing})</button>` : `<span class="meta ok-tag">${ic("check", "ic-sm")} completo</span>`}
+        <button class="btn btn-danger btn-icon" onclick="deleteItem('${it.id}')" title="Eliminar este ítem">${ic("trash")}</button>
       </div>
     </div>`;
   }).join("");
 
   root.innerHTML = `
     <div class="gen-cols">
-      <div class="gen-box">
-        <h3>📁 Subir medios / ideas</h3>
+      <div class="gen-box" style="--i:0">
+        <h3>${ic("folder")} Subir medios / ideas</h3>
         <p class="meta">Fotos, vídeos y audio, o archivos de texto (.md/.txt) como ideas. También puedes arrastrar texto suelto.</p>
         <input type="file" id="fileInput" multiple accept="${MEDIA_ACCEPT},.md,.txt,.markdown" onchange="uploadFiles(this.files)">
         <div class="gen-drop" id="dropZone">o arrastra y suelta aquí</div>
         <div class="savestate" id="uploadStatus">${esc(uploadFeedback)}</div>
       </div>
-      <div class="gen-box">
-        <h3>💡 Nueva idea</h3>
-        <input id="ideaTitle" placeholder="Título de la idea">
+      <div class="gen-box" style="--i:1">
+        <h3>${ic("bulb")} Nueva idea</h3>
+        <input type="text" id="ideaTitle" placeholder="Título de la idea">
         <textarea id="ideaBody" rows="3" placeholder="Descripción (opcional)"></textarea>
-        <div class="actions"><button class="primary" onclick="addIdea()">➕ Añadir idea</button></div>
+        <div class="actions"><button class="btn btn-primary" onclick="addIdea()">${ic("plus")} Añadir idea</button></div>
         <div class="savestate" id="ideaStatus">${esc(ideaFeedback)}</div>
       </div>
-      <div class="gen-box">
-        <h3>🎬 Vídeo por URL</h3>
+      <div class="gen-box" style="--i:2">
+        <h3>${ic("video")} Vídeo por URL</h3>
         <p class="meta">Pega un enlace de YouTube o TikTok y se descargará solo a content/media (requiere yt-dlp: <code>npm run setup:tools</code>).</p>
-        <input id="videoUrl" placeholder="https://www.youtube.com/watch?v=…">
-        <div class="actions"><button class="primary" onclick="importUrl()">⬇️ Descargar vídeo</button></div>
+        <input type="text" id="videoUrl" placeholder="https://www.youtube.com/watch?v=…">
+        <div class="actions"><button class="btn btn-primary" onclick="importUrl()">${ic("download")} Descargar vídeo</button></div>
         <div class="savestate" id="urlStatus">${esc(urlFeedback)}</div>
       </div>
     </div>
     <div class="gen-actions">
-      <button class="ok" id="genBtn" onclick="runGenerate()">✨ Generar drafts con IA</button>
+      <button class="btn btn-ok" id="genBtn" onclick="runGenerate()">${ic("spark")} Generar drafts con IA</button>
       <span class="meta" id="genStatus">${esc(genFeedback)}</span>
     </div>
-    <h3 style="margin-top:6px">📦 Contenido cargado (${state.items.length})</h3>
-    ${cards || `<div class="empty">Sin contenido aún — sube medios o añade una idea arriba.</div>`}`;
+    <h3 class="sec-head">${ic("box")} Contenido cargado (${state.items.length})</h3>
+    ${cards || `<div class="empty">${ic("box", "empty-ic")}<p class="empty-title">Sin contenido aún</p><p class="meta">Sube medios o añade una idea arriba.</p></div>`}`;
 
   const dz = document.getElementById("dropZone");
   if (dz) {
@@ -734,13 +1126,13 @@ async function runGenerate() {
     }
     // Modo demo: resultado inmediato.
     genFeedback = data.generated > 0
-      ? `✓ ${data.generated} draft(s) generados${data.ms ? ` en ${Math.round(data.ms / 1000)}s` : ""}.`
+      ? `OK: ${data.generated} draft(s) generados${data.ms ? ` en ${Math.round(data.ms / 1000)}s` : ""}.`
       : "Sin drafts nuevos (todo cubierto o sin canales habilitados).";
     btn.disabled = false;
     showGenStatus();
     refresh();
   } catch (err) {
-    genFeedback = "⚠ " + err.message;
+    genFeedback = "Error: " + err.message;
     btn.disabled = false;
     showGenStatus();
     refresh();
@@ -754,9 +1146,9 @@ async function deleteItem(id) {
   if (!confirm(`¿Eliminar «${label}»? Se borrará el ítem, sus ${nPosts} draft(s) y el archivo fuente.`)) return;
   try {
     await api(`/api/items/${id}`, { method: "DELETE" });
-    genFeedback = `✓ «${label}» eliminado${nPosts ? ` (${nPosts} draft(s))` : ""}.`;
+    genFeedback = `OK: «${label}» eliminado${nPosts ? ` (${nPosts} draft(s))` : ""}.`;
   } catch (err) {
-    genFeedback = "⚠ " + err.message;
+    genFeedback = "Error: " + err.message;
   }
   refresh();
 }
@@ -770,11 +1162,11 @@ async function genItem(id) {
       await pollGeneration();
       return;
     }
-    genFeedback = data.generated > 0 ? `✓ ${data.generated} draft(s) generados.` : "Sin drafts nuevos.";
+    genFeedback = data.generated > 0 ? `OK: ${data.generated} draft(s) generados.` : "Sin drafts nuevos.";
     showGenStatus();
     refresh();
   } catch (err) {
-    genFeedback = "⚠ " + err.message;
+    genFeedback = "Error: " + err.message;
     showGenStatus();
     refresh();
   }
@@ -789,7 +1181,7 @@ async function pollGeneration() {
     try {
       p = await api("/api/generation", { method: "GET" });
     } catch (err) {
-      genFeedback = "⚠ " + err.message;
+      genFeedback = "Error: " + err.message;
       break;
     }
     if (p.running) {
@@ -801,9 +1193,9 @@ async function pollGeneration() {
       continue;
     }
     genFeedback = p.error
-      ? "⚠ " + p.error
+      ? "Error: " + p.error
       : p.generated > 0
-        ? `✓ ${p.generated} draft(s) generados${p.ms ? ` en ${Math.round(p.ms / 1000)}s` : ""}.`
+        ? `OK: ${p.generated} draft(s) generados${p.ms ? ` en ${Math.round(p.ms / 1000)}s` : ""}.`
         : "Sin drafts nuevos (todo cubierto o sin canales habilitados).";
     break;
   }
@@ -815,16 +1207,16 @@ async function pollGeneration() {
 async function addIdea() {
   const title = document.getElementById("ideaTitle").value.trim();
   const body = document.getElementById("ideaBody").value.trim();
-  if (!title) { ideaFeedback = "⚠ Escribe un título"; renderGen(); return; }
+  if (!title) { ideaFeedback = "Escribe un título"; renderGen(); return; }
   ideaFeedback = "Guardando…";
   renderGen();
   try {
     const data = await api("/api/ideas", { method: "POST", body: JSON.stringify({ title, body }) });
-    ideaFeedback = `✓ Idea guardada (${data.file})`;
+    ideaFeedback = `OK: idea guardada (${data.file})`;
     document.getElementById("ideaTitle").value = "";
     document.getElementById("ideaBody").value = "";
   } catch (err) {
-    ideaFeedback = "⚠ " + err.message;
+    ideaFeedback = "Error: " + err.message;
   }
   refresh();
 }
@@ -866,8 +1258,8 @@ async function uploadFiles(files) {
   }
   if (input) input.value = "";
   uploadFeedback = fails.length
-    ? `⚠ ${done} subido(s), ${fails.length} fallaron: ${fails.join("; ")}`
-    : `✓ ${done} archivo(s) subido(s) e ingeridos.`;
+    ? `Error: ${done} subido(s), ${fails.length} fallaron: ${fails.join("; ")}`
+    : `OK: ${done} archivo(s) subido(s) e ingeridos.`;
   refresh();
 }
 
@@ -880,7 +1272,7 @@ async function importUrl() {
   const input = document.getElementById("videoUrl");
   const url = input ? input.value.trim() : "";
   if (!url) {
-    urlFeedback = "⚠ Pega una URL de YouTube o TikTok.";
+    urlFeedback = "Pega una URL de YouTube o TikTok.";
     showUrlStatus();
     return;
   }
@@ -889,10 +1281,10 @@ async function importUrl() {
   try {
     const data = await api("/api/import-url", { method: "POST", body: JSON.stringify({ url }) });
     urlFeedback = data.ok
-      ? `✓ ${data.file} (${data.sizeMb ?? "?"} MB) descargado e ingerido.`
-      : `⚠ ${data.error || "error desconocido"}`;
+      ? `OK: ${data.file} (${data.sizeMb ?? "?"} MB) descargado e ingerido.`
+      : `Error: ${data.error || "error desconocido"}`;
   } catch (err) {
-    urlFeedback = "⚠ " + err.message;
+    urlFeedback = "Error: " + err.message;
   }
   if (input) input.value = "";
   showUrlStatus();
@@ -923,7 +1315,7 @@ async function useVariant(id, idx) {
 }
 async function approveAll() {
   const data = await api("/api/posts/approve-all", { method: "POST", body: "{}" });
-  alert(`✅ ${data.scheduled} draft(s) programados en horarios óptimos.`);
+  alert(`OK: ${data.scheduled} draft(s) programados en horarios óptimos.`);
   refresh();
 }
 
@@ -935,14 +1327,14 @@ document.addEventListener("input", (e) => {
   const id = e.target.dataset.id;
   const saveEl = document.querySelector(`[data-save="${id}"]`);
   clearTimeout(timers[id]);
-  if (saveEl) saveEl.textContent = "guardando…";
+  if (saveEl) saveEl.textContent = "Guardando…";
   timers[id] = setTimeout(async () => {
     const payload = {};
     if (field === "text") payload.text = e.target.value;
     if (field === "tags") payload.tags = e.target.value.split(",").map((t) => t.trim()).filter(Boolean);
     try {
       await api(`/api/posts/${id}/edit`, { method: "PATCH", body: JSON.stringify(payload) });
-      if (saveEl) saveEl.textContent = "✓ guardado";
+      if (saveEl) saveEl.textContent = "Guardado";
       if (field === "text") {
         const card = e.target.closest(".post");
         const counter = card.querySelector(".counter");
@@ -953,43 +1345,45 @@ document.addEventListener("input", (e) => {
         e.target.classList.toggle("over", over);
       }
     } catch (err) {
-      if (saveEl) saveEl.textContent = "⚠ error al guardar";
+      if (saveEl) saveEl.textContent = "Error al guardar";
     }
   }, 600);
 });
 
-/* ── Página ⚙️ Config y wizard del primer arranque ── */
+/* ── Página Config y wizard del primer arranque ── */
 
 const CFG_SPEEDS = [
-  { id: "ahorro", t: "🐢 Ahorro", d: "Menos RAM/VRAM/calor: contexto corto, mitad de CPUs, modelo descargado a los 5 min y se elige el modelo más pequeño." },
-  { id: "equilibrado", t: "⚖️ Equilibrado", d: "Por defecto: contexto 8192, salida 3072, descarga del modelo a los 30 min." },
-  { id: "rendimiento", t: "⚡ Rendimiento", d: "Máxima velocidad: contexto amplio, modelo siempre cargado y se elige el más grande." },
+  { id: "ahorro", t: "Ahorro", icon: "leaf", d: "Menos RAM / VRAM / calor: contexto corto, mitad de CPUs, el modelo se descarga a los 5 min y se elige el más pequeño." },
+  { id: "equilibrado", t: "Equilibrado", icon: "gauge", d: "Por defecto: contexto 8192, salida 3072, descarga del modelo a los 30 min." },
+  { id: "rendimiento", t: "Rendimiento", icon: "bolt", d: "Máxima velocidad: contexto amplio, modelo siempre cargado y se elige el más grande." },
 ];
 
 function renderConfig() {
   const root = document.getElementById("content");
   if (!cfg) {
-    root.innerHTML = `<div class="empty">Cargando configuración… ${cfgLoading ? "" : `<button onclick="fetchConfig()">↻ Reintentar</button>`}</div>`;
+    root.innerHTML = `<div class="empty">${ic("gear", "empty-ic")}
+      <p class="empty-title">Cargando configuración…</p>
+      ${cfgLoading ? "" : `<div class="actions" style="justify-content:center;margin-top:12px"><button class="btn" onclick="fetchConfig()">${ic("refresh")} Reintentar</button></div>`}</div>`;
     return;
   }
   root.innerHTML = `
     <div class="cfg">
-      <div class="cfg-card">
-        <h3>🤖 IA en uso ahora mismo</h3>
+      <div class="cfg-card" style="--i:0">
+        <h3>${ic("spark")} IA en uso ahora mismo</h3>
         <div class="cfg-summary">
           ${cfgSummaryItem("Proveedor", cfg.llm.provider)}
-          ${cfgSummaryItem("Endpoint", cfg.llm.baseUrl)}
-          ${cfgSummaryItem("Modelo", cfg.llm.model)}
+          ${cfgSummaryItem("Endpoint", cfg.llm.baseUrl, true)}
+          ${cfgSummaryItem("Modelo", cfg.llm.model, true)}
           ${cfgSummaryItem("Clave", cfg.llm.apiKeySet ? "configurada" : "sin clave")}
           ${cfgSummaryItem("Detección local", cfg.llm.localLlm)}
           ${cfgSummaryItem("Modo", cfg.llm.speed)}
         </div>
       </div>
       ${configFormHtml()}
+      ${publicationFormHtml()}
       ${envCardHtml()}
       ${connectorsFormHtml()}
       ${channelLlmFormHtml()}
-      ${publicationFormHtml()}
       ${channelsFormHtml()}
     </div>`;
 }
@@ -997,28 +1391,28 @@ function renderConfig() {
 /* ── Conectores de IA (globales) y asignación por canal ── */
 
 const CONNECTOR_SOURCES = [
-  { id: "local", t: "🤖 Local (Ollama/LM Studio)" },
-  { id: "remote", t: "🖥️ Otra máquina con Ollama (Qwen)" },
-  { id: "cloud", t: "☁️ API en la nube" },
+  { id: "local", t: "Local · Ollama / LM Studio" },
+  { id: "remote", t: "Otra máquina · Ollama (Qwen)" },
+  { id: "cloud", t: "API en la nube" },
 ];
-const CONNECTOR_LABELS = { local: "🤖 Local", remote: "🖥️ Qwen remoto", cloud: "☁️ API en la nube" };
+const CONNECTOR_LABELS = { local: "Local", remote: "Qwen remoto", cloud: "API en la nube" };
 const CONNECTOR_SPEEDS = [
-  { id: "ahorro", t: "🐢 Ahorro" },
-  { id: "equilibrado", t: "⚖️ Equilibrado" },
-  { id: "rendimiento", t: "⚡ Rendimiento" },
+  { id: "ahorro", t: "Ahorro" },
+  { id: "equilibrado", t: "Equilibrado" },
+  { id: "rendimiento", t: "Rendimiento" },
 ];
 
-/** Tarjeta 🔌 Conectores: define aquí las IAs que podrás asignar a cada canal. */
+/** Tarjeta Conectores: define aquí las IAs que podrás asignar a cada canal. */
 function connectorsFormHtml() {
   const list = cfgConnectors || [];
   return `
-    <div class="cfg-card">
-      <h3>🔌 Conectores de IA</h3>
-      <p class="meta">Define aquí las IAs (local, tu máquina con Qwen, APIs en la nube…) y asígnalas después a cada canal. Recuerda pulsar 💾 Guardar.</p>
-      ${list.length === 0 ? `<p class="meta">Aún no hay conectores: añade uno o usa la IA global de arriba para todo.</p>` : ""}
+    <div class="cfg-card" style="--i:4">
+      <h3>${ic("link")} Conectores de IA</h3>
+      <p class="meta">Define aquí las IAs (local, tu máquina con Qwen, APIs en la nube…) y asígnalas después a cada canal. Recuerda pulsar Guardar.</p>
+      ${list.length === 0 ? `<p class="meta" style="margin-top:8px">Aún no hay conectores: añade uno o usa la IA global de arriba para todo.</p>` : ""}
       ${list.map((c, i) => connectorCardHtml(c, i)).join("")}
       <div class="actions" style="margin-top:10px">
-        <button onclick="addConnector()">➕ Añadir conector</button>
+        <button class="btn" onclick="addConnector()">${ic("plus")} Añadir conector</button>
       </div>
     </div>`;
 }
@@ -1045,7 +1439,7 @@ function connectorCardHtml(c, i) {
         <select onchange="setConnectorField(${i}, 'source', this.value)">
           ${CONNECTOR_SOURCES.map((s) => `<option value="${s.id}" ${s.id === c.source ? "selected" : ""}>${s.t}</option>`).join("")}
         </select>
-        <button class="cfg-del" onclick="removeConnector('${esc(c.id)}')" title="Eliminar conector">🗑️</button>
+        <button class="btn btn-danger btn-icon cfg-del" onclick="removeConnector('${esc(c.id)}')" title="Eliminar conector">${ic("trash")}</button>
       </div>
       <div class="cfg-cll-fields">${sourceFields}</div>
     </div>`;
@@ -1083,18 +1477,19 @@ function removeConnector(id) {
   renderConfig();
 }
 
-/** Tarjeta 🧠 IA por canal: cada plataforma elige un conector (o la IA global). */
+/** Tarjeta IA por canal: cada plataforma elige un conector (o la IA global). */
 function channelLlmFormHtml() {
   const chans = (cfg && cfg.channels) || [];
   const conns = cfgConnectors || [];
   return `
-    <div class="cfg-card">
-      <h3>🧠 IA por canal</h3>
-      <p class="meta">Cada plataforma usa el conector que elijas; “Por defecto” usa la IA global de arriba. Recuerda pulsar 💾 Guardar.</p>
+    <div class="cfg-card" style="--i:5">
+      <h3>${ic("chip")} IA por canal</h3>
+      <p class="meta">Cada plataforma usa el conector que elijas; "Por defecto" usa la IA global de arriba. Recuerda pulsar Guardar.</p>
+      <div style="margin-top:12px">
       ${chans.map((c) => `
         <div class="cfg-ch-row">
           <div class="cfg-ch-head">
-            <span class="t">${PLATFORM_META[c.id] ? PLATFORM_META[c.id].emoji + " " : ""}${esc(c.name)}</span>
+            <span class="t">${PLATFORM_META[c.id] ? `<span class="ch-mark" style="background:${PLATFORM_META[c.id].color}">${PLATFORM_META[c.id].mark}</span>` : ""}${esc(c.name)}</span>
             <select onchange="setChannelLlm('${c.id}', this.value)">
               <option value="" ${(cfgChannelLlm[c.id] || "") === "" ? "selected" : ""}>Por defecto (global)</option>
               ${conns.map((n) => `<option value="${esc(n.id)}" ${cfgChannelLlm[c.id] === n.id ? "selected" : ""}>${esc(n.name || n.id)}</option>`).join("")}
@@ -1102,6 +1497,7 @@ function channelLlmFormHtml() {
           </div>
           <div class="meta" style="margin-top:8px">${channelLlmSummary(c.id, conns)}</div>
         </div>`).join("")}
+      </div>
     </div>`;
 }
 
@@ -1110,7 +1506,7 @@ function channelLlmSummary(id, conns) {
   if (!cid) return `Usa la IA global: ${esc(cfg.llm.provider)} · ${esc(cfg.llm.model)}`;
   const conn = conns.find((n) => n.id === cid);
   if (!conn) return "Conector no encontrado";
-  const bits = [`“${esc(conn.name || cid)}”`, CONNECTOR_LABELS[conn.source] || conn.source];
+  const bits = [`"${esc(conn.name || cid)}"`, CONNECTOR_LABELS[conn.source] || conn.source];
   if (conn.model) bits.push(esc(conn.model));
   if (conn.speed && conn.speed !== "equilibrado") bits.push(conn.speed);
   return `Usa ${bits.join(" · ")}`;
@@ -1126,31 +1522,31 @@ function envCardHtml() {
   const env = (cfg && cfg.env) || {};
   if (!env.path) return "";
   return `
-    <div class="cfg-card">
-      <h3>📄 Archivo .env</h3>
+    <div class="cfg-card" style="--i:3">
+      <h3>${ic("file")} Archivo .env</h3>
       <p class="meta">Ruta: <span class="cfg-path">${esc(env.path)}</span>${env.exists ? "" : " · no existe todavía — el panel guarda su config en <code>data/ui-config.json</code>"}</p>
       ${env.exists ? `
-        <div class="actions" style="margin-top:10px">
-          <a class="cfg-link" href="/api/config/env" target="_blank" rel="noopener">👁️ Abrir</a>
-          <a class="cfg-link" href="/api/config/env?download=1" download=".env">⬇️ Descargar</a>
+        <div class="actions" style="margin-top:12px">
+          <a class="btn cfg-link" href="/api/config/env" target="_blank" rel="noopener">${ic("eye")} Abrir</a>
+          <a class="btn cfg-link" href="/api/config/env?download=1" download=".env">${ic("download")} Descargar</a>
         </div>`
-      : `<p class="meta">Crea uno copiando <code>.env.example</code> y rellena las credenciales.</p>`}
+      : `<p class="meta" style="margin-top:8px">Crea uno copiando <code>.env.example</code> y rellena las credenciales.</p>`}
     </div>`;
 }
 
 /** Tarjeta de publicación: DRY_RUN (simulación/en vivo) y AUTO_PUBLISH (autónomo). */
 function publicationFormHtml() {
   return `
-    <div class="cfg-card">
-      <h3>🚀 Publicación</h3>
+    <div class="cfg-card" style="--i:2">
+      <h3>${ic("send")} Publicación</h3>
       <p class="meta">Cambia el modo de publicación desde el panel (se aplica en caliente, sin reiniciar).</p>
-      <div class="cfg-options">
+      <div class="cfg-options" style="margin-top:12px">
         <div class="cfg-option ${cfgPublication.dryRun ? "sel" : ""}" onclick="togglePub('dryRun')" title="Clic para alternar">
-          <div class="t">${cfgPublication.dryRun ? "🧪 Simulación (DRY_RUN=1)" : "🔴 En vivo (DRY_RUN=0)"}</div>
+          <div class="t">${ic(cfgPublication.dryRun ? "flask" : "send")} ${cfgPublication.dryRun ? "Simulación (DRY_RUN=1)" : "En vivo (DRY_RUN=0)"} ${cfgPublication.dryRun ? `<span class="opt-check">${ic("check", "ic-sm")}</span>` : ""}</div>
           <div class="d">${cfgPublication.dryRun ? "Nada se publica de verdad: los posts se marcan como publicados." : "¡Cuidado! Se publica en las APIs reales de los canales."}</div>
         </div>
         <div class="cfg-option ${cfgPublication.autoPublish ? "sel" : ""}" onclick="togglePub('autoPublish')" title="Clic para alternar">
-          <div class="t">${cfgPublication.autoPublish ? "🤖 Autónomo (AUTO_PUBLISH=1)" : "🖐️ Borradores (AUTO_PUBLISH=0)"}</div>
+          <div class="t">${ic(cfgPublication.autoPublish ? "spark" : "pencil")} ${cfgPublication.autoPublish ? "Autónomo (AUTO_PUBLISH=1)" : "Borradores (AUTO_PUBLISH=0)"} ${cfgPublication.autoPublish ? `<span class="opt-check">${ic("check", "ic-sm")}</span>` : ""}</div>
           <div class="d">${cfgPublication.autoPublish ? "El agente programa y publica solo." : "Los drafts quedan para tu revisión antes de publicar."}</div>
         </div>
       </div>
@@ -1166,13 +1562,13 @@ function togglePub(key) {
 function channelsFormHtml() {
   const chans = (cfg && cfg.channels) || [];
   return `
-    <div class="cfg-card">
-      <h3>📡 Canales</h3>
-      <p class="meta">Los canales con credenciales se habilitan solos; aquí puedes forzarlos (o silenciar una plataforma sin tocar el .env). Recuerda pulsar 💾 Guardar.</p>
-      <div class="cfg-options">
+    <div class="cfg-card cfg-card--wide" style="--i:6">
+      <h3>${ic("broadcast")} Canales</h3>
+      <p class="meta">Los canales con credenciales se habilitan solos; aquí puedes forzarlos (o silenciar una plataforma sin tocar el .env). Recuerda pulsar Guardar.</p>
+      <div class="cfg-options" style="margin-top:12px">
         ${chans.map((c) => `
           <div class="cfg-option ${cfgChannels[c.id] ? "sel" : ""}" onclick="toggleChannel('${c.id}')" title="${cfgChannels[c.id] ? "Clic para deshabilitar" : "Clic para habilitar"}">
-            <div class="t">${PLATFORM_META[c.id] ? PLATFORM_META[c.id].emoji : ""} ${esc(c.name)} ${cfgChannels[c.id] ? "✅" : "🚫"}</div>
+            <div class="t">${PLATFORM_META[c.id] ? `<span class="ch-mark" style="background:${PLATFORM_META[c.id].color}">${PLATFORM_META[c.id].mark}</span>` : ""} ${esc(c.name)} <span class="opt-state ${cfgChannels[c.id] ? "on" : "off"}">${ic(cfgChannels[c.id] ? "check" : "x", "ic-sm")}</span></div>
             <div class="d">${c.hasCredentials ? "con credenciales" : "sin credenciales"} · límite ${c.limit} car.</div>
           </div>`).join("")}
       </div>
@@ -1184,27 +1580,28 @@ function toggleChannel(id) {
   renderConfig();
 }
 
-function cfgSummaryItem(k, v) {
-  return `<div><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`;
+function cfgSummaryItem(k, v, mono) {
+  return `<div><div class="k">${esc(k)}</div><div class="v ${mono ? "mono" : ""}">${esc(v)}</div></div>`;
 }
 
-function configFormHtml() {
+function configFormHtml(withActions = true) {
   return `
-    <div class="cfg-card">
-      <h3>🐢⚡ Potencia / velocidad por defecto</h3>
+    <div class="cfg-card" style="--i:1">
+      <h3>${ic("gauge")} Potencia / velocidad por defecto</h3>
       <p class="meta">Ajusta el consumo de hardware de la IA global (cada conector puede llevar la suya). La IA global se define sola: detección automática local o lo que ponga tu .env.</p>
-      <div class="cfg-options">
+      <div class="cfg-options" style="margin-top:12px">
         ${CFG_SPEEDS.map((s) => `
           <div class="cfg-option ${s.id === cfgSpeed ? "sel" : ""}" onclick="setCfgSpeed('${s.id}')">
-            <div class="t">${s.t}</div><div class="d">${s.d}</div>
+            <div class="t">${ic(s.icon)} ${s.t} ${s.id === cfgSpeed ? `<span class="opt-check">${ic("check", "ic-sm")}</span>` : ""}</div><div class="d">${s.d}</div>
           </div>`).join("")}
       </div>
-      <div class="actions" style="margin-top:14px">
-        <button class="primary" onclick="saveCfg(true)">🧪 Probar y guardar</button>
-        <button onclick="saveCfg(false)">💾 Guardar</button>
-        <button onclick="refresh()">↻ Recargar</button>
+      ${withActions ? `
+      <div class="cfg-actions">
+        <button class="btn btn-primary" onclick="saveCfg(true)">${ic("flask")} Probar y guardar</button>
+        <button class="btn" onclick="saveCfg(false)">${ic("save")} Guardar</button>
+        <button class="btn btn-ghost" onclick="refresh()">${ic("refresh")} Recargar</button>
       </div>
-      <div class="cfg-result" id="cfgResult"></div>
+      <div class="cfg-result" id="cfgResult"></div>` : ""}
     </div>`;
 }
 
@@ -1227,7 +1624,7 @@ async function saveCfg(test) {
   // Modo de publicación.
   vars.DRY_RUN = cfgPublication.dryRun ? "1" : "0";
   vars.AUTO_PUBLISH = cfgPublication.autoPublish ? "1" : "0";
-  // Canales: forzar el estado elegido en la página ⚙️ Config.
+  // Canales: forzar el estado elegido en la página Config.
   Object.keys(cfgChannels).forEach((id) => {
     vars[`CHANNEL_${id.toUpperCase()}_ENABLED`] = cfgChannels[id] ? "1" : "0";
   });
@@ -1266,13 +1663,13 @@ async function saveCfg(test) {
     const box2 = document.getElementById("cfgResult");
     const r = data.test;
     if (box2) {
-      if (r && r.ok) box2.innerHTML = `<div class="ok">✅ Conexión OK (${r.ms} ms): “${esc(r.answer)}”</div>`;
-      else if (r) box2.innerHTML = `<div class="err">❌ ${esc(r.error || "sin respuesta")} (${r.ms} ms)</div>`;
-      else box2.innerHTML = `<div class="ok">💾 Configuración guardada y aplicada en vivo.</div>`;
+      if (r && r.ok) box2.innerHTML = `<div class="ok">${ic("checkCircle", "ic-sm")} Conexión OK (${r.ms} ms): "${esc(r.answer)}"</div>`;
+      else if (r) box2.innerHTML = `<div class="err">${ic("xCircle", "ic-sm")} ${esc(r.error || "sin respuesta")} (${r.ms} ms)</div>`;
+      else box2.innerHTML = `<div class="ok">${ic("checkCircle", "ic-sm")} Configuración guardada y aplicada en vivo.</div>`;
     }
   } catch (err) {
     const box3 = document.getElementById("cfgResult");
-    if (box3) box3.innerHTML = `<div class="err">⚠️ ${esc(err.message)}</div>`;
+    if (box3) box3.innerHTML = `<div class="err">${ic("warn", "ic-sm")} ${esc(err.message)}</div>`;
   }
 }
 
@@ -1290,14 +1687,14 @@ function renderWizardForm() {
     document.body.appendChild(overlay);
   }
   overlay.innerHTML = `
-    <div id="wizardCard">
-      <h2>👋 ¡Bienvenido a Social Agent!</h2>
-      <p class="sub">El agente ya funciona con la IA que detecte en tu equipo (Ollama local, tu máquina con Qwen o tu .env) y, si no hay, con el proveedor gratuito anónimo. Si quieres definir varias IAs y asignarlas por canal, usa la pestaña ⚙️ Config → 🔌 Conectores.</p>
-      ${configFormHtml()}
-      <div class="actions" style="margin-top:14px">
-        <button class="primary" onclick="saveCfg(true)">🚀 Probar y guardar</button>
-        <button onclick="saveCfg(false)">💾 Guardar</button>
-        <button onclick="saveCfg(false)">Omitir por ahora</button>
+    <div id="wizardCard" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
+      <h2 id="wizardTitle">${ic("spark", "ic-lg")} Bienvenido a Social Agent</h2>
+      <p class="sub">El agente ya funciona con la IA que detecte en tu equipo (Ollama local, tu máquina con Qwen o tu .env) y, si no hay, con el proveedor gratuito anónimo. Si quieres definir varias IAs y asignarlas por canal, usa la pestaña Config, sección Conectores de IA.</p>
+      ${configFormHtml(false)}
+      <div class="actions cfg-actions">
+        <button class="btn btn-primary" onclick="saveCfg(true)">${ic("flask")} Probar y guardar</button>
+        <button class="btn" onclick="saveCfg(false)">${ic("save")} Guardar</button>
+        <button class="btn btn-ghost" onclick="saveCfg(false)">Omitir por ahora</button>
       </div>
       <div class="cfg-result" id="cfgResult"></div>
     </div>`;

@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <radialGradient id="glow" cx="0.82" cy="0" r="0.8">
+      <stop offset="0" stop-color="#409cff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#409cff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="hairline" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#232a35"/>
+      <stop offset="1" stop-color="#409cff" stop-opacity="0.55"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fondo: mismo sistema que la landing -->
+  <rect width="1200" height="630" fill="#0a0c10"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- Marca: spark + nombre -->
+  <rect x="72" y="64" width="64" height="64" rx="18" fill="#12151b" stroke="#409cff" stroke-opacity="0.45"/>
+  <g transform="translate(72 69.3) scale(2.667)" fill="#6cb4ff">
+    <path d="M12 3l1.9 5.2L19 10l-5.1 1.8L12 17l-1.9-5.2L5 10l5.1-1.8z"/>
+    <circle cx="18.5" cy="5" r="1.2"/>
+  </g>
+  <text x="156" y="108" font-family="Geist, Satoshi, 'Segoe UI', system-ui, sans-serif" font-size="34" font-weight="700" fill="#e8ebf1" letter-spacing="-0.5">Social Agent</text>
+
+  <!-- Titular: tres líneas, la última en acento -->
+  <text x="72" y="218" font-family="Geist, Satoshi, 'Segoe UI', system-ui, sans-serif" font-size="92" font-weight="700" fill="#e8ebf1" letter-spacing="-2.5">Una idea,</text>
+  <text x="72" y="328" font-family="Geist, Satoshi, 'Segoe UI', system-ui, sans-serif" font-size="92" font-weight="700" fill="#e8ebf1" letter-spacing="-2.5">siete redes,</text>
+  <text x="72" y="438" font-family="Geist, Satoshi, 'Segoe UI', system-ui, sans-serif" font-size="92" font-weight="700" fill="#6cb4ff" letter-spacing="-2.5">tu IA.</text>
+
+  <!-- Franja de plataformas (marcas reales) -->
+  <g font-family="Geist, Satoshi, 'Segoe UI', system-ui, sans-serif">
+    <!-- Mastodon -->
+    <rect x="72" y="492" width="122" height="46" rx="14" fill="#12151b" stroke="#232a35"/>
+    <rect x="84" y="502" width="26" height="26" rx="7" fill="#6364FF"/>
+    <text x="97" y="521" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">M</text>
+    <text x="122" y="522" font-size="15" font-weight="600" fill="#9aa4b4">Mastodon</text>
+    <!-- Bluesky -->
+    <rect x="204" y="492" width="110" height="46" rx="14" fill="#12151b" stroke="#232a35"/>
+    <rect x="216" y="502" width="26" height="26" rx="7" fill="#0085FF"/>
+    <text x="229" y="521" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">B</text>
+    <text x="254" y="522" font-size="15" font-weight="600" fill="#9aa4b4">Bluesky</text>
+    <!-- X -->
+    <rect x="324" y="492" width="80" height="46" rx="14" fill="#12151b" stroke="#232a35"/>
+    <rect x="336" y="502" width="26" height="26" rx="7" fill="#e8ebf1"/>
+    <text x="349" y="521" font-size="12" font-weight="700" fill="#111418" text-anchor="middle">X</text>
+    <text x="374" y="522" font-size="15" font-weight="600" fill="#9aa4b4">X</text>
+    <!-- LinkedIn -->
+    <rect x="414" y="492" width="122" height="46" rx="14" fill="#12151b" stroke="#232a35"/>
+    <rect x="426" y="502" width="26" height="26" rx="7" fill="#0A66C2"/>
+    <text x="439" y="521" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">in</text>
+    <text x="464" y="522" font-size="15" font-weight="600" fill="#9aa4b4">LinkedIn</text>
+    <!-- Instagram -->
+    <rect x="546" y="492" width="128" height="46" rx="14" fill="#12151b" stroke="#232a35"/>
+    <rect x="558" y="502" width="26" height="26" rx="7" fill="#E1306C"/>
+    <text x="571" y="521" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">IG</text>
+    <text x="596" y="522" font-size="15" font-weight="600" fill="#9aa4b4">Instagram</text>
+    <!-- Facebook -->
+    <rect x="684" y="492" width="124" height="46" rx="14" fill="#12151b" stroke="#232a35"/>
+    <rect x="696" y="502" width="26" height="26" rx="7" fill="#1877F2"/>
+    <text x="709" y="521" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">f</text>
+    <text x="734" y="522" font-size="15" font-weight="600" fill="#9aa4b4">Facebook</text>
+    <!-- TikTok -->
+    <rect x="818" y="492" width="104" height="46" rx="14" fill="#12151b" stroke="#232a35"/>
+    <rect x="830" y="502" width="26" height="26" rx="7" fill="#e8ebf1"/>
+    <text x="843" y="521" font-size="12" font-weight="700" fill="#111418" text-anchor="middle">TT</text>
+    <text x="868" y="522" font-size="15" font-weight="600" fill="#9aa4b4">TikTok</text>
+  </g>
+
+  <!-- Hairline y URL -->
+  <rect x="72" y="572" width="1056" height="1" fill="url(#hairline)"/>
+  <text x="1128" y="604" font-family="ui-monospace, 'Cascadia Code', Consolas, monospace" font-size="22" font-weight="500" fill="#69748a" text-anchor="end">re1m0n.github.io/social-agent</text>
+</svg>

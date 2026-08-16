@@ -3,7 +3,19 @@
   "version": "0.1.0",
   "description": "Agente de marketing en redes sociales: ingiere ideas y media, genera contenido por plataforma con un agente experto LLM, y publica automáticamente en varios canales.",
   "license": "MIT",
-  "keywords": ["marketing", "social-media", "llm", "agente", "mastodon", "bluesky", "twitter", "linkedin", "instagram", "tiktok", "automatización"],
+  "keywords": [
+    "marketing",
+    "social-media",
+    "llm",
+    "agente",
+    "mastodon",
+    "bluesky",
+    "twitter",
+    "linkedin",
+    "instagram",
+    "tiktok",
+    "automatización"
+  ],
   "type": "module",
   "bin": {
     "social-agent": "dist/cli.js"
@@ -41,6 +53,7 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "serve": "^14.2.6",
+    "sharp": "^0.35.3",
     "typescript": "^5.7.2"
   }
 }
