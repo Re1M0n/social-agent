@@ -7,6 +7,16 @@ export type NotifyEvent =
   | { kind: "publish"; channel: ChannelId; title: string; postUrl?: string }
   | { kind: "failure"; channel: ChannelId; title: string; error: string };
 
+/** Resultado por destino de un envío (publicación, fallo o prueba). */
+export interface NotifyResult {
+  /** id estable del destino: "webhook" | "telegram" | "discord" */
+  target: string;
+  /** nombre legible para mostrar en el panel */
+  label: string;
+  ok: boolean;
+  error?: string;
+}
+
 /** Tiempo máximo de espera por destino (no bloquear la publicación). */
 const TIMEOUT_MS = 10_000;
 
@@ -23,6 +33,12 @@ export function notifyText(ev: NotifyEvent): string {
   return `Social Agent · Fallo al publicar en ${channelName(ev.channel)}: ${title}\n${ev.error}`;
 }
 
+/** Texto del aviso de prueba (con hora local para comprobar latencia). */
+export function testNotifyText(): string {
+  const when = new Date().toLocaleString();
+  return `Social Agent · 🔔 Aviso de prueba — si recibes esto, las notificaciones funcionan (${when}).`;
+}
+
 async function post(url: string, body: unknown): Promise<void> {
   const res = await fetch(url, {
     method: "POST",
@@ -33,42 +49,68 @@ async function post(url: string, body: unknown): Promise<void> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
-/** Envía el aviso a todos los destinos configurados. Nunca lanza: los fallos
- *  de red se loguean y no bloquean la publicación. */
-export async function sendNotifications(config: AgentConfig, ev: NotifyEvent): Promise<void> {
-  const n = config.notifications;
-  if (ev.kind === "publish" && !n.onPublish) return;
-  if (ev.kind === "failure" && !n.onFailure) return;
+interface Job {
+  target: string;
+  label: string;
+  run: () => Promise<void>;
+}
 
-  const jobs: { target: string; run: () => Promise<void> }[] = [];
+function buildJobs(n: AgentConfig["notifications"], text: string, meta: { event: string; channel: string }): Job[] {
+  const jobs: Job[] = [];
   if (n.webhookUrl) {
     jobs.push({
       target: "webhook",
-      run: () => post(n.webhookUrl, { text: notifyText(ev), event: ev.kind, channel: ev.channel }),
+      label: "Webhook genérico",
+      run: () => post(n.webhookUrl, { text, event: meta.event, channel: meta.channel }),
     });
   }
   if (n.telegramToken && n.telegramChatId) {
     jobs.push({
       target: "telegram",
+      label: "Telegram",
       run: () =>
         post(`https://api.telegram.org/bot${n.telegramToken}/sendMessage`, {
           chat_id: n.telegramChatId,
-          text: notifyText(ev),
+          text,
         }),
     });
   }
   if (n.discordUrl) {
     jobs.push({
       target: "discord",
-      run: () => post(n.discordUrl, { content: notifyText(ev) }),
+      label: "Discord",
+      run: () => post(n.discordUrl, { content: text }),
     });
   }
+  return jobs;
+}
 
-  await Promise.all(
-    jobs.map((j) =>
-      j.run().catch((err: unknown) => {
-        console.error(`[notify:${j.target}] ${err instanceof Error ? err.message : String(err)}`);
-      }),
-    ),
+/** Ejecuta los envíos en paralelo. Nunca lanza: cada destino devuelve su
+ *  resultado (ok/error) y los fallos de red se loguean. */
+async function runJobs(jobs: Job[]): Promise<NotifyResult[]> {
+  return Promise.all(
+    jobs.map(async (j) => {
+      try {
+        await j.run();
+        return { target: j.target, label: j.label, ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[notify:${j.target}] ${msg}`);
+        return { target: j.target, label: j.label, ok: false, error: msg };
+      }
+    }),
   );
+}
+
+/** Envía el aviso a todos los destinos configurados según el evento. */
+export async function sendNotifications(config: AgentConfig, ev: NotifyEvent): Promise<NotifyResult[]> {
+  const n = config.notifications;
+  if (ev.kind === "publish" && !n.onPublish) return [];
+  if (ev.kind === "failure" && !n.onFailure) return [];
+  return runJobs(buildJobs(n, notifyText(ev), { event: ev.kind, channel: ev.channel }));
+}
+
+/** Envía un aviso de prueba a todos los destinos configurados. */
+export async function sendTestNotifications(config: AgentConfig): Promise<NotifyResult[]> {
+  return runJobs(buildJobs(config.notifications, testNotifyText(), { event: "test", channel: "test" }));
 }

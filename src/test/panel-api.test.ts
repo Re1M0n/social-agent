@@ -679,6 +679,97 @@ describe("Panel web: API de revisión y aprobación", () => {
     assert.equal(again.notifications.onPublish, false);
   });
 
+  it("POST /api/config/notify-test envía un aviso de prueba y devuelve el resultado por destino", async () => {
+    const originalFetch = globalThis.fetch;
+    const sent: string[] = [];
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).startsWith(base)) return originalFetch(url, init); // petición al panel: pasa real
+      sent.push(String(url));
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    try {
+      // Destinos del cuerpo (aunque aún no se hayan guardado).
+      const res = await fetch(`${base}/api/config/notify-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          notifications: {
+            webhookUrl: "https://hooks.slack.com/services/T00",
+            telegramToken: "123:ABC",
+            telegramChatId: "-100123",
+            discordUrl: "",
+          },
+        }),
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json();
+      assert.equal(data.ok, true);
+      assert.equal(data.results.length, 2, "webhook + telegram");
+      assert.ok(data.results.every((r: { ok: boolean }) => r.ok));
+      assert.deepEqual(
+        data.results.map((r: { target: string }) => r.target).sort(),
+        ["telegram", "webhook"],
+      );
+      assert.ok(sent.some((u) => u.startsWith("https://hooks.slack.com")), "llamada al webhook");
+      assert.ok(sent.some((u) => u.startsWith("https://api.telegram.org/bot123:ABC/sendMessage")), "llamada a Telegram");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("POST /api/config/notify-test informa del fallo de un destino sin romper los demás", async () => {
+    const originalFetch = globalThis.fetch;
+    let fail = false;
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).startsWith(base)) return originalFetch(url, init); // petición al panel: pasa real
+      if (fail) throw new Error("ECONNREFUSED");
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    try {
+      fail = true;
+      const res = await fetch(`${base}/api/config/notify-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          notifications: {
+            webhookUrl: "https://hooks.slack.com/services/T00",
+            telegramToken: "", telegramChatId: "", discordUrl: "",
+          },
+        }),
+      });
+      const data = await res.json();
+      assert.equal(data.ok, true);
+      assert.equal(data.results.length, 1);
+      assert.equal(data.results[0].ok, false);
+      assert.equal(data.results[0].error, "ECONNREFUSED");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("POST /api/config/notify-test avisa cuando no hay destinos", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).startsWith(base)) return originalFetch(url, init); // petición al panel: pasa real
+      calls.push(String(url));
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    try {
+      const res = await fetch(`${base}/api/config/notify-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notifications: { webhookUrl: "", telegramToken: "", telegramChatId: "", discordUrl: "" } }),
+      });
+      const data = await res.json();
+      assert.equal(data.ok, true);
+      assert.equal(data.results.length, 0);
+      assert.equal(calls.length, 0, "sin llamadas a destinos");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("GET /api/calendar devuelve los eventos del mes y los huecos recomendados", async () => {
     const now = new Date();
     // Marcar un post como programado dentro del mes actual (misma fuente que el CLI).
@@ -781,6 +872,54 @@ describe("Panel web: API de revisión y aprobación", () => {
     const data = await res.json();
     assert.equal(data.post.status, "scheduled");
     assert.ok(data.post.scheduledFor && Date.parse(data.post.scheduledFor) > Date.now() - 1000, "fecha futura");
+  });
+
+  it("rechaza dos posts del mismo canal a la misma hora y sugiere el siguiente hueco", async () => {
+    const t0 = new Date(Date.now() + 72 * 3600 * 1000);
+    t0.setMinutes(0, 0, 0);
+    const t0iso = t0.toISOString();
+    // Un post de Mastodon fijado a esa hora.
+    const first = await fetch(`${base}/api/posts/post-a-mastodon/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduledFor: t0iso }),
+    });
+    assert.equal(first.status, 200);
+    // Segundo borrador del mismo canal a la misma hora → 409 con sugerencia.
+    // Store fresco: un addDrafts con instancia vieja sobrescribiría el archivo
+    // y revertiría el schedule del primer post.
+    new Store(dataFile).addDrafts([{
+      id: "post-b-mastodon", contentItemId: "item-a", channel: "mastodon",
+      text: "Segundo Mastodon", tags: [], createdAt: new Date().toISOString(),
+    }]);
+    const clash = await fetch(`${base}/api/posts/post-b-mastodon/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduledFor: t0iso }),
+    });
+    assert.equal(clash.status, 409);
+    const clashData = await clash.json();
+    assert.match(String(clashData.error), /Mastodon/);
+    assert.ok(clashData.suggestion && Date.parse(clashData.suggestion) > Date.now(), "sugerencia futura");
+    // La sugerencia no choca: programar con ella funciona.
+    const ok = await fetch(`${base}/api/posts/post-b-mastodon/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduledFor: clashData.suggestion }),
+    });
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).post.scheduledFor, clashData.suggestion);
+    // Canal distinto a la misma hora → sin conflicto.
+    new Store(dataFile).addDrafts([{
+      id: "post-b-twitter", contentItemId: "item-a", channel: "twitter",
+      text: "Otro canal", tags: [], createdAt: new Date().toISOString(),
+    }]);
+    const other = await fetch(`${base}/api/posts/post-b-twitter/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduledFor: t0iso }),
+    });
+    assert.equal(other.status, 200);
   });
 
   it("POST /api/config cambia DRY_RUN y AUTO_PUBLISH en caliente", async () => {

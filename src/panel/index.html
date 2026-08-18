@@ -340,12 +340,20 @@
   .cal-cell--today .cal-num { color: var(--accent-strong); font-weight: 700; }
   .cal-ev {
     font-size: 10.8px; line-height: 1.3; padding: 3px 6px; border-radius: 7px; border: 1px solid;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; display: flex; gap: 5px; align-items: baseline;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; display: flex; gap: 5px; align-items: baseline;
+    transition: border-color .15s, transform .15s;
   }
+  .cal-ev:hover { border-color: var(--accent-border); transform: translateY(-1px); }
+  .cal-ev:focus-visible { outline: 2px solid var(--accent-border); outline-offset: 1px; }
   .cal-ev .ch-mark { font-size: 9px; font-weight: 800; padding: 0 4px; border-radius: 4px; line-height: 1.5; flex: none; }
   .cal-ev.published { color: var(--ok); border-color: rgba(52, 211, 153, .35); background: var(--ok-soft); }
   .cal-ev.scheduled { color: var(--text-2); border-color: var(--border-strong); background: var(--surface-2); }
   .cal-ev.failed { color: var(--err); border-color: rgba(248, 113, 113, .35); background: var(--err-soft); }
+  @keyframes calFlash {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); }
+    50% { box-shadow: 0 0 0 4px var(--accent-soft); }
+  }
+  .post--flash { animation: calFlash 1.6s ease-in-out 2; border-color: var(--accent-border); }
   .cal-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 18px; }
   .cal-slot {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
@@ -889,6 +897,15 @@ async function demoApi(url, opts = {}) {
   if (method === "POST" && path === "/api/config") {
     return { ok: true, config: demoConfig(), test: { ok: true, answer: "ok (demo)", ms: 140 } };
   }
+  if (method === "POST" && path === "/api/config/notify-test") {
+    const n = (body && body.notifications) || {};
+    const results = [];
+    if (n.webhookUrl) results.push({ target: "webhook", label: "Webhook genérico", ok: true });
+    if (n.discordUrl) results.push({ target: "discord", label: "Discord", ok: true });
+    if (n.telegramToken && n.telegramChatId) results.push({ target: "telegram", label: "Telegram", ok: true });
+    if (!results.length) return { ok: true, results: [], warning: "No hay destinos configurados." };
+    return { ok: true, results };
+  }
   if (method === "GET" && path === "/api/chat") {
     return { messages: demoChat.messages, connectors: demoConfig().connectors, llm: { provider: "kilo-anon", baseUrl: "https://api.kilo.ai/api/gateway", model: "openrouter/free", speed: "equilibrado" } };
   }
@@ -920,6 +937,19 @@ async function demoApi(url, opts = {}) {
         const t = Date.parse(raw);
         if (Number.isNaN(t)) throw new Error("Fecha inválida");
         if (t <= Date.now()) throw new Error("La fecha debe ser futura");
+        // Mismo canal programado en la ventana (demo: 60 min) → sugerir el siguiente hueco.
+        const clash = demoStore.state.posts.find(
+          (p) => p.id !== id && p.channel === post.channel && p.status === "scheduled" && p.scheduledFor && Math.abs(Date.parse(p.scheduledFor) - t) < 3600000,
+        );
+        if (clash) {
+          // Siguiente hora completa a ≥ 60 min del conflicto (redondeo hacia
+          // arriba: un hueco redondeado hacia abajo aún podría chocar).
+          const clashT = Date.parse(clash.scheduledFor);
+          const s = new Date(Math.ceil((clashT + 3600000) / 3600000) * 3600000);
+          const e = new Error("Ya hay un post de este canal programado cerca de esa hora.");
+          e.data = { suggestion: s.toISOString() };
+          throw e;
+        }
         post.scheduledFor = new Date(t).toISOString();
       } else {
         post.scheduledFor = new Date(Date.now() + 3600000).toISOString();
@@ -1050,7 +1080,11 @@ async function api(url, opts = {}) {
     ...opts,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const e = new Error(data.error || `HTTP ${res.status}`);
+    e.data = data; // p. ej. { suggestion } en conflictos de horario
+    throw e;
+  }
   return data;
 }
 
@@ -1205,6 +1239,7 @@ function postCard(p, i) {
   } else if (p.status === "scheduled") {
     metaLine = `Programado: <b>${fmt(new Date(p.scheduledFor))}</b>`;
     actions = `<button class="btn btn-ok" onclick="publish('${p.id}')">${ic("send")} Publicar ahora</button>
+               <button class="btn" onclick="openSchedule('${p.id}')" title="Cambiar la fecha/hora programada">${ic("clock")} Reprogramar</button>
                <button class="btn btn-danger" onclick="discard('${p.id}')">${ic("trash")} Descartar</button>`;
   } else if (p.status === "published") {
     const url = p.postUrl?.startsWith("dry-run://") ? `<span>${esc(p.postUrl)}</span>` : `<a href="${esc(p.postUrl)}" target="_blank">${esc(p.postUrl)}</a>`;
@@ -1644,7 +1679,7 @@ function renderCalendar() {
       const meta = PLATFORM_META[ev.channel] || { mark: "?", color: "var(--text-3)", name: ev.channel };
       const tip = `${ev.status} · ${meta.name || ev.channel} · ${ev.date} · ${ev.text}`;
       const text = ev.text.length > 26 ? ev.text.slice(0, 26) + "…" : ev.text;
-      return `<div class="cal-ev ${ev.status}" title="${esc(tip)}"><span class="cal-time">${ev.time}</span><span class="ch-mark" style="background:${meta.color};color:#fff">${meta.mark}</span><span class="cal-txt">${esc(text)}</span></div>`;
+      return `<div class="cal-ev ${ev.status}" role="button" tabindex="0" title="Abrir: ${esc(tip)}" onclick="openPostFromCalendar('${ev.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPostFromCalendar('${ev.id}')}"><span class="cal-time">${ev.time}</span><span class="ch-mark" style="background:${meta.color};color:#fff">${meta.mark}</span><span class="cal-txt">${esc(text)}</span></div>`;
     }).join("");
     cells.push(`<div class="cal-cell ${isToday ? "cal-cell--today" : ""}"><span class="cal-num">${day}</span>${evs}</div>`);
   }
@@ -1689,6 +1724,21 @@ function fmtCal(d) {
   const date = d.toLocaleDateString("es-ES", { weekday: "short", day: "2-digit", month: "short" });
   const time = d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
   return `${date} · ${time}`;
+}
+
+/** Abre un post desde el calendario en su pestaña de estado y lo resalta. */
+function openPostFromCalendar(id) {
+  const post = state.posts.find((p) => p.id === id);
+  if (!post) return;
+  setTab(post.status);
+  // Tras el render, llevar la tarjeta al foco y resaltarla brevemente.
+  requestAnimationFrame(() => {
+    const card = document.querySelector(`.post[data-id="${id}"]`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.classList.add("post--flash");
+    setTimeout(() => card.classList.remove("post--flash"), 3600);
+  });
 }
 
 function calNav(dir) {
@@ -1983,9 +2033,10 @@ async function importUrl() {
 }
 
 async function schedule(id) {
+  const wasScheduled = state.posts.find((p) => p.id === id)?.status === "scheduled";
   const data = await api(`/api/posts/${id}/schedule`, { method: "POST", body: "{}" });
   if (data.post && data.post.scheduledFor) {
-    publishFeedback = { kind: "ok", text: `Programado automáticamente para ${fmt(new Date(data.post.scheduledFor))}.` };
+    publishFeedback = { kind: "ok", text: `${wasScheduled ? "Reprogramado" : "Programado"} automáticamente para ${fmt(new Date(data.post.scheduledFor))}.` };
   }
   closeSchedule();
   refresh();
@@ -1995,15 +2046,23 @@ async function schedule(id) {
 function defaultScheduleValue() {
   const d = new Date(Date.now() + 3600000);
   d.setMinutes(0, 0, 0);
+  return toLocalInput(d);
+}
+
+/** Formatea una fecha como valor local de <input type="datetime-local">. */
+function toLocalInput(d) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/** Abre el selector de fecha/hora para programar un post concreto. */
+/** Abre el selector de fecha/hora para programar (o reprogramar) un post. */
 function openSchedule(id) {
   const post = state.posts.find((p) => p.id === id);
   if (!post) return;
   const meta = PLATFORM_META[post.channel] || { name: post.channel };
+  const reschedule = post.status === "scheduled";
+  // Al reprogramar, el selector arranca con la fecha programada actual.
+  const prefill = reschedule && post.scheduledFor ? toLocalInput(new Date(post.scheduledFor)) : defaultScheduleValue();
   let overlay = document.getElementById("scheduleOverlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -2012,11 +2071,11 @@ function openSchedule(id) {
   }
   overlay.innerHTML = `
     <div id="scheduleCard" role="dialog" aria-modal="true" aria-labelledby="scheduleTitle">
-      <h3 id="scheduleTitle">${ic("clock")} Programar en ${esc(meta.name || post.channel)}</h3>
+      <h3 id="scheduleTitle">${ic("clock")} ${reschedule ? "Reprogramar" : "Programar"} en ${esc(meta.name || post.channel)}</h3>
       <p class="sub">Elige una fecha y hora exacta, o usa el hueco óptimo automático.</p>
-      <input type="datetime-local" id="scheduleInput" value="${defaultScheduleValue()}" aria-label="Fecha y hora de publicación">
+      <input type="datetime-local" id="scheduleInput" value="${prefill}" aria-label="Fecha y hora de publicación">
       <div class="actions" style="margin-top:14px">
-        <button class="btn btn-primary" onclick="scheduleAt('${id}')">${ic("check")} Programar en esta fecha</button>
+        <button class="btn btn-primary" onclick="scheduleAt('${id}')">${ic("check")} ${reschedule ? "Guardar nueva fecha" : "Programar en esta fecha"}</button>
         <button class="btn" onclick="schedule('${id}')">${ic("gauge")} Hueco automático</button>
         <button class="btn btn-ghost" onclick="closeSchedule()">${ic("x")} Cancelar</button>
       </div>
@@ -2029,8 +2088,13 @@ function openSchedule(id) {
 async function scheduleAt(id) {
   const input = document.getElementById("scheduleInput");
   const value = input ? input.value.trim() : "";
-  if (!value) { scheduleFeedback("Elige una fecha y hora."); return; }
-  const iso = new Date(value).toISOString();
+  if (!value) { scheduleFeedback("Elige una fecha y hora.", null, id); return; }
+  scheduleWithIso(id, new Date(value).toISOString());
+}
+
+/** Programa (o reprograma) un post en un instante ISO concreto. */
+async function scheduleWithIso(id, iso) {
+  const wasScheduled = state.posts.find((p) => p.id === id)?.status === "scheduled";
   try {
     const data = await api(`/api/posts/${id}/schedule`, {
       method: "POST",
@@ -2038,17 +2102,23 @@ async function scheduleAt(id) {
       body: JSON.stringify({ scheduledFor: iso }),
     });
     if (data.post && data.post.scheduledFor) {
-      publishFeedback = { kind: "ok", text: `Programado para ${fmt(new Date(data.post.scheduledFor))}.` };
+      publishFeedback = { kind: "ok", text: `${wasScheduled ? "Reprogramado" : "Programado"} para ${fmt(new Date(data.post.scheduledFor))}.` };
     }
     closeSchedule();
+    refresh();
   } catch (err) {
-    scheduleFeedback("Error: " + err.message);
-    return;
+    // 409 con sugerencia: ofrecer el siguiente hueco libre directamente.
+    const suggestion = err && err.data && typeof err.data.suggestion === "string" ? err.data.suggestion : null;
+    scheduleFeedback("Error: " + err.message, suggestion, id);
   }
-  refresh();
 }
 
-function scheduleFeedback(msg) {
+/** Aplica la sugerencia del servidor (siguiente hueco libre). */
+function scheduleSuggestion(id, iso) {
+  scheduleWithIso(id, iso);
+}
+
+function scheduleFeedback(msg, suggestion, id) {
   const card = document.getElementById("scheduleCard");
   if (!card) return;
   let el = card.querySelector(".err");
@@ -2058,7 +2128,13 @@ function scheduleFeedback(msg) {
     el.style.marginTop = "10px";
     card.appendChild(el);
   }
-  el.textContent = msg;
+  if (suggestion) {
+    const when = new Date(suggestion);
+    el.innerHTML = `${ic("warn", "ic-sm")} ${esc(msg)}
+      <button class="btn" style="margin-top:8px" onclick="scheduleSuggestion('${id}', '${suggestion}')">${ic("clock")} Usar sugerencia: ${esc(fmt(when))}</button>`;
+  } else {
+    el.textContent = msg;
+  }
 }
 
 function closeSchedule() {
@@ -2433,8 +2509,50 @@ function notificationsFormHtml() {
         <div class="cfg-field"><label>Telegram · chat id (número o @usuario)</label>
           <input id="cfgnotify_telegramChatId" type="text" value="${esc(n.telegramChatId || "")}" placeholder="-1001234567890"></div>
       </div>
+      <div class="cfg-notify-test" style="margin-top:14px">
+        <button class="btn" onclick="testNotifications()">${ic("send")} Probar aviso</button>
+        <span class="meta" id="cfgNotifyTestStatus" style="margin-left:10px"></span>
+        <div id="cfgNotifyTestResults" style="margin-top:10px"></div>
+      </div>
       <p class="meta" style="margin-top:12px">Un destino está activo cuando tiene su URL (o token + chat) rellenos. Recuerda pulsar Guardar para aplicarlo.</p>
     </div>`;
+}
+
+async function testNotifications() {
+  const n = {
+    webhookUrl: (document.getElementById("cfgnotify_webhookUrl") || {}).value || "",
+    telegramToken: (document.getElementById("cfgnotify_telegramToken") || {}).value || "",
+    telegramChatId: (document.getElementById("cfgnotify_telegramChatId") || {}).value || "",
+    discordUrl: (document.getElementById("cfgnotify_discordUrl") || {}).value || "",
+    onPublish: cfgNotify ? cfgNotify.onPublish : true,
+    onFailure: cfgNotify ? cfgNotify.onFailure : true,
+  };
+  const status = document.getElementById("cfgNotifyTestStatus");
+  const box = document.getElementById("cfgNotifyTestResults");
+  if (!status || !box) return;
+  status.textContent = "Enviando…";
+  status.className = "meta";
+  box.innerHTML = "";
+  try {
+    const data = await api("/api/config/notify-test", { method: "POST", body: JSON.stringify({ notifications: n }) });
+    const results = data.results || [];
+    if (!results.length) {
+      status.textContent = data.warning || "No hay destinos configurados.";
+      return;
+    }
+    const allOk = results.every((r) => r.ok);
+    status.textContent = allOk ? "Enviado a todos los destinos." : "Algunos destinos fallaron:";
+    status.style.color = allOk ? "var(--ok, #16a34a)" : "var(--err)";
+    box.innerHTML = results.map((r) => `
+      <div class="notify-test-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;margin-bottom:6px;font-size:13px;${r.ok ? "background:rgba(22,163,74,.08);color:var(--ok,#16a34a)" : "background:rgba(239,68,68,.08);color:var(--err)"}">
+        ${ic(r.ok ? "checkCircle" : "xCircle", "ic-sm")}
+        <b>${esc(r.label)}</b>
+        <span class="mono" style="margin-left:auto;opacity:.8">${r.ok ? "ok" : esc(r.error || "error")}</span>
+      </div>`).join("");
+  } catch (e) {
+    status.textContent = "Error: " + (e && e.message ? e.message : String(e));
+    status.style.color = "var(--err)";
+  }
 }
 
 function toggleNotify(key) {

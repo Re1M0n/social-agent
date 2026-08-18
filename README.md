@@ -303,10 +303,13 @@ publicar, con el flujo aprobar/descartar en vivo:
   desplegable.
 - **Acciones**: ✅ Aprobar todos (programa en horarios óptimos), 🕐 Programar
   (aprueba un draft con **selector de fecha/hora** para fijar un horario exacto,
-  o usa el hueco óptimo automático), 🚀 Publicar ahora (con confirmación
-  adaptada al modo y banner con el resultado: publicado / fallo / omitido), ↩️
-  Deshacer publicación (vuelve el post a borrador), 🔁 Reintentar fallidos y 🗑
-  Descartar.
+  o usa el hueco óptimo automático; los posts ya programados se pueden
+  **reprogramar** desde la pestaña Programados con el mismo selector,
+  precargado con su fecha actual; si otro post del mismo canal ya está
+  programado cerca de esa hora, avisa y ofrece **Usar sugerencia** con el
+  siguiente hueco libre), 🚀 Publicar ahora (con confirmación adaptada
+  al modo y banner con el resultado: publicado / fallo / omitido), ↩️ Deshacer
+  publicación (vuelve el post a borrador), 🔁 Reintentar fallidos y 🗑 Descartar.
 - **Pestaña ⚙️ Config**: resumen de la **IA en uso ahora mismo**, **🔌 Conectores
   de IA** (define varias IAs con nombre: local, tu máquina con Qwen, APIs en la
   nube…), **🧠 IA por canal** (cada plataforma elige uno de esos conectores o la
@@ -329,7 +332,8 @@ publicar, con el flujo aprobar/descartar en vivo:
 - **Media preview**: imágenes/videos adjuntos visibles en el propio panel.
 - **Pestaña 📅 Calendario**: vista mensual de los posts **programados**,
   **publicados** y **fallidos** con fecha (grid de lunes a domingo, día de hoy
-  marcado, chips por plataforma con hora y estado). Navega entre meses y muestra
+  marcado, chips por plataforma con hora y estado; **cada chip es clicable** y
+  abre el post en su pestaña de estado, resaltándolo). Navega entre meses y muestra
   los **próximos huecos recomendados** por canal habilitado, con la misma lógica
   que `npm run calendar` (modelo aprendido del engagement si existe). Datos vía
   `GET /api/calendar?month=YYYY-MM`.
@@ -392,6 +396,10 @@ error de la API). Puedes desactivar cada evento con los conmutadores "Avisar al
 publicar" / "Avisar al fallar". El envío es *fire-and-forget* (timeout de 10 s
 por destino): un destino caído no bloquea la publicación y el error solo se
 loguea.
+
+El botón **Probar aviso** de la tarjeta envía un mensaje de prueba a los
+destinos rellenos (aunque aún no hayas pulsado Guardar) y muestra el resultado
+**por destino** (✓/✗ con el motivo del fallo), sin escribir nada en disco.
 
 ## 📅 Calendario editorial y métricas
 

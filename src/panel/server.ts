@@ -9,8 +9,9 @@ import { CONTENT_EXTENSIONS, loadConfig, type AgentConfig, type LlmSpeed } from 
 import { generateForAll, generateForItem, type GenerationProgress } from "../generator.js";
 import { ingest } from "../ingest.js";
 import { applyLocalLlm, chat, chatStream, type LlmOptions } from "../llm.js";
+import { sendTestNotifications } from "../notify.js";
 import { CHANNEL_LIMITS, loadLearned, publishSingle, scheduleDrafts, scheduleSingle } from "../publisher.js";
-import { nextSlot } from "../scheduler.js";
+import { nextSlot, type LearnedSchedule } from "../scheduler.js";
 import { Store } from "../storage.js";
 import { CHANNELS, type ChannelId } from "../types.js";
 import { applyUiConfig, loadChannelLlm, loadConnectors, loadNotifications, loadUiConfig, saveChannelLlm, saveConnectors, saveNotifications, saveUiConfig, uiConfigFile, UI_CONFIG_KEYS, type ConnectorConfig, type UiConfigVars } from "../uiconfig.js";
@@ -77,6 +78,38 @@ function panelHtmlPath(config: AgentConfig): string {
   ];
   for (const c of candidates) if (existsSync(c)) return c;
   return join(moduleDir, "index.html");
+}
+
+/** Comprueba si programar un post a `when` choca con otro del mismo canal ya
+ *  programado en la ventana (minIntervalMs). Si choca, devuelve el siguiente
+ *  hueco libre sugerido (respetando el modelo aprendido); si no, null. */
+function scheduleConflictFree(
+  store: Store,
+  postId: string,
+  when: Date,
+  minIntervalMs: number,
+  learned: LearnedSchedule,
+): Date | null {
+  const target = store.posts.find((p) => p.id === postId);
+  if (!target) return null;
+  const clashes = (t: number): boolean =>
+    store.posts.some(
+      (p) =>
+        p.id !== postId &&
+        p.channel === target.channel &&
+        p.status === "scheduled" &&
+        p.scheduledFor !== undefined &&
+        Math.abs(Date.parse(p.scheduledFor) - t) < minIntervalMs,
+    );
+  if (!clashes(when.getTime())) return null;
+  // Primer hueco libre tras la ventana del conflicto.
+  let candidate = when.getTime() + minIntervalMs;
+  for (let i = 0; i < 12; i++) {
+    const slot = nextSlot(target.channel, new Date(candidate), minIntervalMs, 3, learned);
+    if (!clashes(slot.getTime())) return slot;
+    candidate = slot.getTime() + minIntervalMs;
+  }
+  return new Date(candidate);
 }
 
 /** Runtime del panel: la config puede cambiarse en vivo desde /api/config. */
@@ -398,6 +431,20 @@ async function handleApi(
     return sendJson(res, 200, { ok: true, config: out, test });
   }
 
+  // Probar las notificaciones configuradas (o las del cuerpo, aunque aún no se hayan guardado).
+  if (method === "POST" && pathname === "/api/config/notify-test") {
+    const n = loadNotifications(config.root);
+    if (json.notifications && typeof json.notifications === "object") {
+      const b = json.notifications as Record<string, unknown>;
+      n.webhookUrl = typeof b.webhookUrl === "string" ? b.webhookUrl : n.webhookUrl;
+      n.telegramToken = typeof b.telegramToken === "string" ? b.telegramToken : n.telegramToken;
+      n.telegramChatId = typeof b.telegramChatId === "string" ? b.telegramChatId : n.telegramChatId;
+      n.discordUrl = typeof b.discordUrl === "string" ? b.discordUrl : n.discordUrl;
+    }
+    const results = await sendTestNotifications({ ...config, notifications: n });
+    return sendJson(res, 200, { ok: true, results });
+  }
+
   // ── Chat con el agente: conversación persistente con la IA elegida ──
   if (method === "GET" && pathname === "/api/chat") {
     return sendJson(res, 200, {
@@ -603,6 +650,16 @@ async function handleApi(
       const t = Date.parse(raw);
       if (Number.isNaN(t)) return sendJson(res, 400, { error: "Fecha inválida" });
       if (t <= Date.now()) return sendJson(res, 400, { error: "La fecha debe ser futura" });
+      // No programar dos posts del mismo canal en la misma ventana (minIntervalMs).
+      const suggestion = scheduleConflictFree(store, postId, new Date(t), config.minIntervalMs, loadLearned(config));
+      if (suggestion) {
+        const target = store.posts.find((p) => p.id === postId);
+        const channelName = target ? PLATFORM_PROFILES[target.channel]?.name ?? target.channel : "ese canal";
+        return sendJson(res, 409, {
+          error: `Ya hay un post de ${channelName} programado cerca de esa hora.`,
+          suggestion: suggestion.toISOString(),
+        });
+      }
       post = store.updatePost(postId, {
         status: "scheduled",
         scheduledFor: new Date(t).toISOString(),

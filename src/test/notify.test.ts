@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { notifyText, sendNotifications } from "../notify.js";
+import { notifyText, sendNotifications, sendTestNotifications, testNotifyText } from "../notify.js";
 import { defaultNotifyConfig, type NotifyConfig } from "../uiconfig.js";
 import { testConfig } from "./helpers.js";
 
@@ -110,5 +110,48 @@ describe("Notificaciones (webhook / Telegram / Discord)", () => {
     assert.match(t, /…$/);
     const f = notifyText({ kind: "failure", channel: "facebook", title: "Título", error: "e" });
     assert.match(f, /Fallo al publicar en Facebook: Título\ne/);
+  });
+
+  it("sendTestNotifications envía a todos los destinos y devuelve sus resultados", async () => {
+    stubFetch();
+    const cfg = cfgWith({
+      webhookUrl: "https://hooks.slack.com/services/T00",
+      telegramToken: "123:ABC",
+      telegramChatId: "-100123",
+      discordUrl: "https://discord.com/api/webhooks/111",
+    });
+    const results = await sendTestNotifications(cfg);
+    assert.equal(calls.length, 3);
+    assert.deepEqual(
+      results.map((r) => r.target).sort(),
+      ["discord", "telegram", "webhook"],
+    );
+    assert.ok(results.every((r) => r.ok));
+    for (const c of calls) {
+      const text = String((c.body.text ?? c.body.content) ?? "");
+      assert.match(text, /Aviso de prueba/);
+    }
+  });
+
+  it("sendTestNotifications respeta onPublish/onFailure desactivados (solo prueba destinos, sin filtro)", async () => {
+    stubFetch();
+    const cfg = cfgWith({ webhookUrl: "https://hooks.slack.com/services/T00", onPublish: false, onFailure: false });
+    const results = await sendTestNotifications(cfg);
+    assert.equal(calls.length, 1); // la prueba se envía aunque los conmutadores estén apagados
+    assert.deepEqual(results, [{ target: "webhook", label: "Webhook genérico", ok: true }]);
+  });
+
+  it("sendTestNotifications reporta el fallo por destino sin lanzar", async () => {
+    stubFetch();
+    failWith = new Error("ECONNREFUSED");
+    const cfg = cfgWith({ webhookUrl: "https://hooks.slack.com/services/T00" });
+    const results = await sendTestNotifications(cfg);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].ok, false);
+    assert.equal(results[0].error, "ECONNREFUSED");
+  });
+
+  it("testNotifyText menciona el aviso de prueba", () => {
+    assert.match(testNotifyText(), /Aviso de prueba/);
   });
 });
