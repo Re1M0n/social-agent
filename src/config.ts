@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ChannelConfig, ChannelId, ContentItem } from "./types.js";
 import { CHANNELS } from "./types.js";
-import { loadChannelLlm, loadConnectors } from "./uiconfig.js";
+import { loadChannelLlm, loadConnectors, loadNotifications, type NotifyConfig } from "./uiconfig.js";
 
 /** Carga .env manualmente (sin dependencias externas). */
 export function loadEnvFile(root = process.cwd()): void {
@@ -86,6 +86,8 @@ export interface AgentConfig {
     channels: Partial<Record<ChannelId, ChannelLlmConfig>>;
   };
   channels: Record<ChannelId, ChannelConfig>;
+  /** Avisos cuando el agente publica o falla (webhook/Telegram/Discord). */
+  notifications: NotifyConfig;
 }
 
 const CHANNEL_CREDENTIAL_KEYS: Record<ChannelId, string[]> = {
@@ -174,6 +176,7 @@ export function loadConfig(root = process.cwd()): AgentConfig {
     autoPublish: (process.env.AUTO_PUBLISH ?? "0") === "1" || (process.env.AUTO_PUBLISH ?? "0") === "true",
     dryRun,
     minIntervalMs: Number(process.env.MIN_POST_INTERVAL_MINUTES ?? 60) * 60_000,
+    notifications: loadNotifications(root),
     llm: {
       provider: isFreeAnonymous
         ? "kilo-anon"

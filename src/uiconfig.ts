@@ -152,6 +152,56 @@ export function saveConnectors(root: string, connectors: ConnectorConfig[]): voi
   writeUiConfigFile(root, data);
 }
 
+/* ── Notificaciones cuando el agente publica o falla ────────────────────── */
+
+/** Destinos y eventos de notificación (se guardan en data/ui-config.json). */
+export interface NotifyConfig {
+  /** Webhook genérico (Slack, Make, n8n…) — activo si no está vacío. */
+  webhookUrl: string;
+  /** Bot token de Telegram — activo si no está vacío (con chatId). */
+  telegramToken: string;
+  /** Chat o grupo de Telegram donde enviar (id numérico o @usuario). */
+  telegramChatId: string;
+  /** Webhook URL de Discord — activo si no está vacío. */
+  discordUrl: string;
+  /** Avisar cuando un post se publica de verdad (no en dry-run). */
+  onPublish: boolean;
+  /** Avisar cuando un post falla al publicarse. */
+  onFailure: boolean;
+}
+
+export function defaultNotifyConfig(): NotifyConfig {
+  return { webhookUrl: "", telegramToken: "", telegramChatId: "", discordUrl: "", onPublish: true, onFailure: true };
+}
+
+/** Lee la config de notificaciones guardada por el panel ({} si no existe). */
+export function loadNotifications(root: string): NotifyConfig {
+  const raw = readUiConfigFile(root).notifications;
+  const out = defaultNotifyConfig();
+  if (typeof raw !== "object" || raw === null) return out;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.webhookUrl === "string") out.webhookUrl = r.webhookUrl.trim();
+  if (typeof r.telegramToken === "string") out.telegramToken = r.telegramToken.trim();
+  if (typeof r.telegramChatId === "string") out.telegramChatId = r.telegramChatId.trim();
+  if (typeof r.discordUrl === "string") out.discordUrl = r.discordUrl.trim();
+  if (typeof r.onPublish === "boolean") out.onPublish = r.onPublish;
+  if (typeof r.onFailure === "boolean") out.onFailure = r.onFailure;
+  return out;
+}
+
+export function saveNotifications(root: string, n: NotifyConfig): void {
+  const data = readUiConfigFile(root);
+  data.notifications = {
+    webhookUrl: n.webhookUrl?.trim() ?? "",
+    telegramToken: n.telegramToken?.trim() ?? "",
+    telegramChatId: n.telegramChatId?.trim() ?? "",
+    discordUrl: n.discordUrl?.trim() ?? "",
+    onPublish: n.onPublish !== false,
+    onFailure: n.onFailure !== false,
+  };
+  writeUiConfigFile(root, data);
+}
+
 /** Asignación por canal: canal → id de conector (\"\" = IA por defecto). */
 export function loadChannelLlm(root: string): Partial<Record<ChannelId, string>> {
   const out: Partial<Record<ChannelId, string>> = {};

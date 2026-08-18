@@ -302,7 +302,11 @@ publicar, con el flujo aprobar/descartar en vivo:
 - **Estrategia visible**: la justificación del agente (`rationale`) en un panel
   desplegable.
 - **Acciones**: ✅ Aprobar todos (programa en horarios óptimos), 🕐 Programar
-  (aprueba un draft), 🚀 Publicar ahora, 🔁 Reintentar fallidos y 🗑 Descartar.
+  (aprueba un draft con **selector de fecha/hora** para fijar un horario exacto,
+  o usa el hueco óptimo automático), 🚀 Publicar ahora (con confirmación
+  adaptada al modo y banner con el resultado: publicado / fallo / omitido), ↩️
+  Deshacer publicación (vuelve el post a borrador), 🔁 Reintentar fallidos y 🗑
+  Descartar.
 - **Pestaña ⚙️ Config**: resumen de la **IA en uso ahora mismo**, **🔌 Conectores
   de IA** (define varias IAs con nombre: local, tu máquina con Qwen, APIs en la
   nube…), **🧠 IA por canal** (cada plataforma elige uno de esos conectores o la
@@ -310,9 +314,10 @@ publicar, con el flujo aprobar/descartar en vivo:
   (`ahorro`/`equilibrado`/`rendimiento`), un **selector de canales** para
   habilitar/deshabilitar cada plataforma (con indicación de si tiene
   credenciales), el **modo de publicación** (🧪 simulación/en vivo con `DRY_RUN`
-  y 🤖 autónomo/borradores con `AUTO_PUBLISH`) y la **ruta del `.env`** con
-  botones para 👁️ abrirlo y ⬇️ descargarlo (panel local), con botón **🧪 Probar
-  y guardar** que comprueba la conexión en vivo. La IA global no se configura
+  y 🤖 autónomo/borradores con `AUTO_PUBLISH`), las **🔔 Notificaciones** (ver
+  abajo) y la **ruta del `.env`** con botones para 👁️ abrirlo y ⬇️ descargarlo
+  (panel local), con botón **🧪 Probar y guardar** que comprueba la conexión en
+  vivo. La IA global no se configura
   aquí: se detecta sola (Ollama/LM Studio local, `OLLAMA_BASE_URL` o el `.env`).
   Lo que guardes se persiste en `data/ui-config.json` (ignorado por git) y se
   aplica **en caliente** a la generación y al estado del panel, sin reiniciarlo;
@@ -322,6 +327,17 @@ publicar, con el flujo aprobar/descartar en vivo:
   configurada), un asistente te da la bienvenida y te lleva a la ⚙️ Config para
   definir conectores; puedes omitirlo y volver luego.
 - **Media preview**: imágenes/videos adjuntos visibles en el propio panel.
+- **Pestaña 📅 Calendario**: vista mensual de los posts **programados**,
+  **publicados** y **fallidos** con fecha (grid de lunes a domingo, día de hoy
+  marcado, chips por plataforma con hora y estado). Navega entre meses y muestra
+  los **próximos huecos recomendados** por canal habilitado, con la misma lógica
+  que `npm run calendar` (modelo aprendido del engagement si existe). Datos vía
+  `GET /api/calendar?month=YYYY-MM`.
+- **Pestaña 💡 Ideas**: crea y lista tus ideas de contenido (se guardan como
+  archivos `.md` en `content/ideas/` y entran en la próxima generación). Muestra
+  cuántos canales cubre cada idea (con su botón **Generar** por idea y
+  **Generar drafts de todas las ideas**), el texto de la idea y permite
+  eliminarla (borra la idea, sus drafts y el archivo fuente).
 - **Pestaña ⚡ Generar**: sube fotos/vídeos/audio (arrastrando o con el botón) a
   `content/media/` y añade ideas de texto, y todo se ingiere al instante. Con el
   botón **✨ Generar drafts con IA** (o por ítem) el agente habla con la IA y
@@ -358,6 +374,24 @@ API REST integrada (`GET /api/state`, `PATCH /api/posts/:id/edit`,
 `DELETE /api/items/:id`). Solo escucha en `127.0.0.1`. Se integra con el resto de
 comandos: lo que subas, generes, programes o publiques desde el panel se
 refleja en `status`, `calendar`, `metrics` y `report`.
+
+### 🔔 Notificaciones (webhook / Telegram / Discord)
+
+Configurables desde la pestaña ⚙️ Config (se guardan en `data/ui-config.json` y
+se aplican en caliente). Un destino está activo solo si tiene su URL (o token +
+chat) rellenos:
+
+- **Webhook genérico** (Slack, Make, n8n…): recibe un JSON
+  `{ text, event, channel }`.
+- **Telegram**: bot token + chat id (`sendMessage`).
+- **Discord**: webhook URL (`{ content }`).
+
+El agente avisa cuando un post **se publica de verdad** (nunca en modo
+simulación) o cuando **falla** (límite de caracteres, canal sin credenciales,
+error de la API). Puedes desactivar cada evento con los conmutadores "Avisar al
+publicar" / "Avisar al fallar". El envío es *fire-and-forget* (timeout de 10 s
+por destino): un destino caído no bloquea la publicación y el error solo se
+loguea.
 
 ## 📅 Calendario editorial y métricas
 

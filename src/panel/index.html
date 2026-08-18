@@ -139,6 +139,10 @@
   .banner.info .ic { color: var(--accent-strong); }
   .banner.err { border-left-color: var(--err); }
   .banner.err .ic { color: var(--err); }
+  .banner.ok { border-left-color: var(--ok); }
+  .banner.ok .ic { color: var(--ok); }
+  .banner.warn { border-left-color: var(--warn); }
+  .banner.warn .ic { color: var(--warn); }
 
   /* ── Pestañas ──────────────────────────────────────────────────────── */
   .tabs {
@@ -321,6 +325,36 @@
   .sec-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; letter-spacing: -.005em; margin: 6px 0 14px; }
   .sec-head .ic { color: var(--accent-strong); }
 
+  /* ── Página Calendario: vista mensual de posts ─────────────────────── */
+  .cal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .cal-month { font-size: 16px; font-weight: 650; letter-spacing: -.012em; min-width: 160px; text-align: center; }
+  .cal-month .ic { color: var(--accent-strong); margin-right: 6px; }
+  .cal-nav { display: flex; align-items: center; gap: 8px; }
+  .cal-nav .btn { padding: 7px 11px; font-size: 13px; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
+  .cal-dow { background: var(--surface-2); padding: 8px 10px; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); text-align: center; }
+  .cal-cell { background: var(--surface); min-height: 104px; padding: 7px 9px; display: flex; flex-direction: column; gap: 5px; overflow: hidden; }
+  .cal-cell--dim { background: var(--bg); opacity: .5; }
+  .cal-cell--today { box-shadow: inset 0 0 0 1.5px var(--accent-border); }
+  .cal-num { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); line-height: 1; }
+  .cal-cell--today .cal-num { color: var(--accent-strong); font-weight: 700; }
+  .cal-ev {
+    font-size: 10.8px; line-height: 1.3; padding: 3px 6px; border-radius: 7px; border: 1px solid;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; display: flex; gap: 5px; align-items: baseline;
+  }
+  .cal-ev .ch-mark { font-size: 9px; font-weight: 800; padding: 0 4px; border-radius: 4px; line-height: 1.5; flex: none; }
+  .cal-ev.published { color: var(--ok); border-color: rgba(52, 211, 153, .35); background: var(--ok-soft); }
+  .cal-ev.scheduled { color: var(--text-2); border-color: var(--border-strong); background: var(--surface-2); }
+  .cal-ev.failed { color: var(--err); border-color: rgba(248, 113, 113, .35); background: var(--err-soft); }
+  .cal-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 18px; }
+  .cal-slot {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+    padding: 13px 15px; box-shadow: var(--shadow-card);
+  }
+  .cal-slot h4 { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; margin-bottom: 7px; }
+  .cal-slot ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+  .cal-slot li { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+
   /* ── Página Config: bento asimétrico 2 columnas ────────────────────── */
   .cfg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 1240px; }
   @media (max-width: 1000px) { .cfg { grid-template-columns: 1fr; } }
@@ -423,6 +457,25 @@
   #wizardCard h2 { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 650; letter-spacing: -.012em; margin-bottom: 6px; }
   #wizardCard h2 .ic { color: var(--accent-strong); }
   #wizardCard .sub { color: var(--text-2); font-size: 13px; margin-bottom: 18px; max-width: 62ch; }
+
+  /* ── Overlay de programación con fecha/hora concreta ────────────────── */
+  #scheduleOverlay {
+    position: fixed; inset: 0; background: rgba(7, 9, 12, .74); backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px); display: grid; place-items: center; z-index: 60; padding: 20px;
+  }
+  #scheduleCard {
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 18px; padding: 22px;
+    max-width: 440px; width: 100%; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04), 0 24px 80px -24px rgba(0, 0, 0, .8);
+  }
+  @media (prefers-reduced-motion: no-preference) { #scheduleCard { animation: rise .4s cubic-bezier(.16, 1, .3, 1); } }
+  #scheduleCard h3 { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 650; letter-spacing: -.012em; margin-bottom: 6px; }
+  #scheduleCard h3 .ic { color: var(--accent-strong); }
+  #scheduleCard .sub { color: var(--text-2); font-size: 13px; margin-bottom: 14px; }
+  #scheduleCard input[type="datetime-local"] {
+    width: 100%; padding: 10px 12px; border-radius: var(--radius-ctl); border: 1px solid var(--border-strong);
+    background: var(--field); color: var(--text); font: inherit; font-size: 13.5px;
+  }
+  #scheduleCard input[type="datetime-local"]:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
 
   /* ── Chat con el agente ─────────────────────────────────────────────── */
   .chat-card {
@@ -559,6 +612,10 @@ const ICONS = {
   check: '<path d="M20 6L9 17l-5-5"/>',
   send: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+  chevL: '<path d="M15 6l-6 6 6 6"/>',
+  chevR: '<path d="M9 6l6 6-6 6"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>',
   retry: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>',
   bolt: '<path d="M13 2L4 14h6l-1 8 9-12h-6z"/>',
@@ -576,6 +633,7 @@ const ICONS = {
   terminal: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
   cloud: '<path d="M7 18a4 4 0 0 1-.6-8A6 6 0 0 1 18 10a3.5 3.5 0 0 1-.5 8z"/>',
   broadcast: '<path d="M5 12a7 7 0 0 1 14 0"/><path d="M8.5 12a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="12" r="1"/>',
+  bell: '<path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 13h6M9 17h6"/>',
   eye: '<path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/>',
   save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/>',
@@ -619,6 +677,7 @@ let cfgChannels = {}; // estado habilitado/deshabilitado de cada canal (página 
 let cfgChannelLlm = {}; // IA por canal: id del conector asignado ("" = IA global)
 let cfgConnectors = null; // conectores de IA definidos en el panel (globales)
 let cfgPublication = { dryRun: true, autoPublish: false }; // modo de publicación
+let cfgNotify = null; // notificaciones (webhook/Telegram/Discord) de la página Config
 let wizardDone = false;
 // Chat con el agente: historial, IA elegida y estado de envío.
 let chat = null; // { messages, connectors, llm }
@@ -634,6 +693,8 @@ let manualMode = null; // null = auto (fallback por API); "demo"/"server" = elec
 let serverError = null;
 // Feedback persistente de la pestaña de generación (sobrevive al re-render).
 let genFeedback = "";
+// Último resultado de Publicar/Deshacer (banner en las pestañas de posts).
+let publishFeedback = null; // { kind: "ok" | "err" | "warn", text }
 let uploadFeedback = "";
 let ideaFeedback = "";
 let urlFeedback = "";
@@ -661,6 +722,11 @@ const DEMO_POSTS = [
     text: "¿Cuántas horas pierdes a la semana organizándote? Hoy lanzamos la app que lo reduce a minutos. Cuéntanos qué te parece." },
   { id: "demo-tiktok", contentItemId: "demo-lanzamiento", channel: "tiktok", status: "draft", tags: ["fyp", "productividad", "lanzamiento"], createdAt: new Date(demoNow - 3600000).toISOString(),
     text: "POV: dejas de perder horas organizándote\n\n#fyp #productividad #lanzamiento" },
+  // Posts con fecha (calendario): publicados/programados/fallidos del mes actual.
+  { id: "demo-published", contentItemId: "demo-lanzamiento", channel: "mastodon", status: "published", tags: ["productividad"], publishedAt: new Date(demoNow - 3 * 86400000).toISOString(), postUrl: "https://mastodon.social/@demo/123", text: "(Demo) Publicado: la constancia vence a la perfección. #productividad" },
+  { id: "demo-scheduled-1", contentItemId: "demo-lanzamiento", channel: "twitter", status: "scheduled", tags: ["productividad"], scheduledFor: new Date(demoNow + 2 * 86400000).toISOString(), text: "(Demo) Programado: gancho + beneficio directo. #productividad" },
+  { id: "demo-scheduled-2", contentItemId: "demo-lanzamiento", channel: "linkedin", status: "scheduled", tags: ["carrera"], scheduledFor: new Date(demoNow + 5 * 86400000).toISOString(), text: "(Demo) Programado: guía de 30 días en LinkedIn." },
+  { id: "demo-failed", contentItemId: "demo-lanzamiento", channel: "instagram", status: "failed", tags: ["lanzamiento"], scheduledFor: new Date(demoNow - 86400000).toISOString(), error: "demo: token caducado", text: "(Demo) Fallido: token de Instagram caducado." },
 ];
 const demoStore = {
   state: {
@@ -726,6 +792,37 @@ async function demoApi(url, opts = {}) {
   const body = opts.body ? JSON.parse(opts.body) : {};
   await new Promise((r) => setTimeout(r, 150)); // simular latencia de red
   if (method === "GET" && path === "/api/state") return demoStore.state;
+  if (method === "GET" && path === "/api/calendar") {
+    const q = new URL(url, window.location.href);
+    const raw = q.searchParams.get("month") || "";
+    const mm = /^(\d{4})-(\d{2})$/.exec(raw);
+    const now = new Date();
+    const y = mm ? Number(mm[1]) : now.getFullYear();
+    const mth = mm ? Number(mm[2]) - 1 : now.getMonth();
+    const start = new Date(y, mth, 1).getTime();
+    const end = new Date(y, mth + 1, 1).getTime();
+    const events = demoStore.state.posts
+      .map((p) => {
+        const date = p.status === "published" ? p.publishedAt : p.scheduledFor;
+        if (!date) return null;
+        const t = Date.parse(date);
+        if (t < start || t >= end) return null;
+        return { id: p.id, channel: p.channel, status: p.status, date, text: p.text, postUrl: p.postUrl || "" };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const slots = {};
+    demoStore.state.channels.filter((c) => c.enabled).forEach((c, ci) => {
+      const list = [];
+      for (let i = 0; i < 3; i++) {
+        const d = new Date(now.getTime() + (ci * 3 + i + 1) * 3600000);
+        d.setMinutes(0, 0, 0);
+        list.push(d.toISOString());
+      }
+      slots[c.id] = list;
+    });
+    return { year: y, month: mth, today: now.toISOString(), events, slots };
+  }
   if (method === "POST" && path === "/api/posts/approve-all") {
     let n = 0;
     for (const p of demoStore.state.posts) {
@@ -818,8 +915,16 @@ async function demoApi(url, opts = {}) {
       return { ok: true, post };
     }
     if (method === "POST" && action === "schedule") {
+      const raw = (body && body.scheduledFor) || "";
+      if (raw) {
+        const t = Date.parse(raw);
+        if (Number.isNaN(t)) throw new Error("Fecha inválida");
+        if (t <= Date.now()) throw new Error("La fecha debe ser futura");
+        post.scheduledFor = new Date(t).toISOString();
+      } else {
+        post.scheduledFor = new Date(Date.now() + 3600000).toISOString();
+      }
       post.status = "scheduled";
-      post.scheduledFor = new Date(Date.now() + 3600000).toISOString();
       return { ok: true, post };
     }
     if (method === "POST" && action === "publish") {
@@ -827,6 +932,12 @@ async function demoApi(url, opts = {}) {
       post.publishedAt = new Date().toISOString();
       post.postUrl = `demo://${post.channel}/${post.id}`;
       return { ok: true, result: "published", post };
+    }
+    if (method === "POST" && action === "unpublish") {
+      post.status = "draft";
+      delete post.publishedAt;
+      delete post.postUrl;
+      return { ok: true, post };
     }
     if (method === "POST" && action === "discard") {
       demoStore.state.posts = demoStore.state.posts.filter((p) => p.id !== id);
@@ -847,6 +958,7 @@ function demoConfig() {
     connectors: [
       { id: "conn-demo", name: "Groq demo", source: "cloud", baseUrl: "https://api.groq.com/openai/v1", apiKey: "", model: "llama-3.3-70b-versatile", speed: "equilibrado", ollamaBaseUrl: "", ollamaModel: "" },
     ],
+    notifications: { webhookUrl: "", telegramToken: "", telegramChatId: "", discordUrl: "", onPublish: true, onFailure: true },
     channels: Object.entries(PLATFORM_META).map(([id, m]) => ({ id, name: m.name, enabled: true, limit: DEMO_LIMITS[id], hasCredentials: id === "mastodon" || id === "bluesky", llm: { connector: "" } })),
   };
 }
@@ -865,6 +977,7 @@ function syncCfgDrafts() {
   if (cfg.publication) {
     cfgPublication = { dryRun: !!cfg.publication.dryRun, autoPublish: !!cfg.publication.autoPublish };
   }
+  cfgNotify = cfg.notifications ? { ...cfg.notifications } : { webhookUrl: "", telegramToken: "", telegramChatId: "", discordUrl: "", onPublish: true, onFailure: true };
 }
 
 function enableDemo() {
@@ -1012,8 +1125,11 @@ function render() {
   // Tabs con contadores + pestañas de generación y config.
   const counts = { draft: 0, scheduled: 0, published: 0, failed: 0 };
   state.posts.forEach((p) => counts[p.status] = (counts[p.status] || 0) + 1);
+  const ideasCount = state.items.filter((i) => i.kind === "idea").length;
   const tabDefs = [
     ...Object.keys(TAB_LABEL).map((t) => ({ id: t, label: TAB_LABEL[t], icon: TAB_ICONS[t], count: `(${counts[t]})` })),
+    { id: "calendar", label: "Calendario", icon: "calendar", count: "" },
+    { id: "ideas", label: "Ideas", icon: "bulb", count: `(${ideasCount})` },
     { id: "generate", label: "Generar", icon: "bolt", count: "" },
     { id: "chat", label: "Chat", icon: "comment", count: "" },
     { id: "config", label: "Config", icon: "gear", count: "" },
@@ -1021,6 +1137,8 @@ function render() {
   document.getElementById("tabs").innerHTML = tabDefs.map((t) =>
     `<button class="tab ${t.id === tab ? "active" : ""}" onclick="setTab('${t.id}')">${ic(t.icon)}<span>${t.label}</span>${t.count ? `<span class="cnt">${t.count}</span>` : ""}</button>`).join("");
 
+  if (tab === "calendar") { renderCalendar(); return; }
+  if (tab === "ideas") { renderIdeas(); return; }
   if (tab === "generate") { renderGen(); return; }
   if (tab === "chat") { renderChat(); return; }
   if (tab === "config") { renderConfig(); return; }
@@ -1036,12 +1154,12 @@ function render() {
 
   const root = document.getElementById("content");
   if (items.length === 0) {
-    root.innerHTML = `<div class="empty">${ic(TAB_ICONS[tab], "empty-ic")}
+    root.innerHTML = `${publishBannerHtml()}<div class="empty">${ic(TAB_ICONS[tab], "empty-ic")}
       <p class="empty-title">Sin posts ${TAB_LABEL[tab].toLowerCase()}</p>
       <p class="meta">${tab === "draft" ? "Ejecuta <code>npm run generate</code> o usa la pestaña Generar para crear drafts." : "Aquí aparecerán cuando existan."}</p></div>`;
     return;
   }
-  root.innerHTML = items.map((item, i) => {
+  root.innerHTML = publishBannerHtml() + items.map((item, i) => {
     const itemPosts = byItem.get(item.id);
     return `<div class="item" style="--i:${i}">
       <div class="item-head">
@@ -1082,7 +1200,7 @@ function postCard(p, i) {
   let metaLine = "";
   if (p.status === "draft") {
     actions = `<button class="btn btn-ok" onclick="publish('${p.id}')">${ic("send")} Publicar ahora</button>
-               <button class="btn btn-primary" onclick="schedule('${p.id}')">${ic("clock")} Programar</button>
+               <button class="btn btn-primary" onclick="openSchedule('${p.id}')">${ic("clock")} Programar</button>
                <button class="btn btn-danger" onclick="discard('${p.id}')">${ic("trash")} Descartar</button>`;
   } else if (p.status === "scheduled") {
     metaLine = `Programado: <b>${fmt(new Date(p.scheduledFor))}</b>`;
@@ -1091,6 +1209,7 @@ function postCard(p, i) {
   } else if (p.status === "published") {
     const url = p.postUrl?.startsWith("dry-run://") ? `<span>${esc(p.postUrl)}</span>` : `<a href="${esc(p.postUrl)}" target="_blank">${esc(p.postUrl)}</a>`;
     metaLine = `Publicado: <b>${fmt(new Date(p.publishedAt))}</b> · ${url}`;
+    actions = `<button class="btn" onclick="unpublish('${p.id}')" title="Vuelve el post a Pendientes como borrador (no borra la publicación en la plataforma)">${ic("undo")} Deshacer</button>`;
   } else if (p.status === "failed") {
     metaLine = `<div class="error">${esc(p.error)}</div>`;
     actions = `<button class="btn btn-ok" onclick="publish('${p.id}')">${ic("retry")} Reintentar</button>
@@ -1348,6 +1467,255 @@ async function clearChat() {
     alert("Error al vaciar: " + err.message);
   }
   renderChat();
+}
+
+/* ── Pestaña Ideas: crear y listar ideas que alimentan la generación ── */
+
+let ideasFeedback = "";
+
+function renderIdeas() {
+  const root = document.getElementById("content");
+  const ideas = state.items.filter((i) => i.kind === "idea");
+  const enabled = state.channels.filter((c) => c.enabled).length;
+  const cards = ideas.map((it, idx) => {
+    const posts = state.posts.filter((p) => p.contentItemId === it.id);
+    const missing = enabled - posts.length;
+    const body = (it.body || "").split("\n")[0].trim().slice(0, 110);
+    return `<div class="item" style="--i:${idx}">
+      <div class="item-head">
+        <span class="item-title">${esc(it.title)}</span>
+        <span class="item-kind">${ic("bulb")} idea</span>
+        <span class="spacer"></span>
+      </div>
+      ${body ? `<div class="meta">${esc(body)}${(it.body || "").trim().length > 110 ? "…" : ""}</div>` : ""}
+      <div class="meta">${posts.length}/${enabled} canales habilitados cubiertos</div>
+      <div class="actions">
+        ${missing > 0 ? `<button class="btn btn-primary" onclick="genIdeaItem('${it.id}')">${ic("spark")} Generar (${missing})</button>` : `<span class="meta ok-tag">${ic("check", "ic-sm")} completo</span>`}
+        <button class="btn btn-danger btn-icon" onclick="deleteIdeaItem('${it.id}')" title="Eliminar esta idea">${ic("trash")}</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  root.innerHTML = `
+    <div class="gen-cols">
+      <div class="gen-box" style="--i:0">
+        <h3>${ic("bulb")} Nueva idea</h3>
+        <p class="meta">Se guarda como archivo .md en <code>content/ideas/</code> y entra en la próxima generación de drafts.</p>
+        <input type="text" id="ideaTabTitle" placeholder="Título de la idea">
+        <textarea id="ideaTabBody" rows="3" placeholder="Descripción, ángulo o notas (opcional)"></textarea>
+        <div class="actions"><button class="btn btn-primary" onclick="addIdeaTab()">${ic("plus")} Añadir idea</button></div>
+      </div>
+    </div>
+    <div class="gen-actions">
+      <button class="btn btn-ok" id="ideasGenBtn" onclick="generateAllIdeas()">${ic("spark")} Generar drafts de todas las ideas</button>
+      <span class="meta" id="ideasStatus">${esc(ideasFeedback)}</span>
+    </div>
+    <h3 class="sec-head">${ic("box")} Ideas (${ideas.length})</h3>
+    ${cards || `<div class="empty">${ic("bulb", "empty-ic")}<p class="empty-title">Sin ideas aún</p><p class="meta">Añade una arriba: se ingerirá en <code>content/ideas/</code> y podrás generar drafts con la IA.</p></div>`}`;
+}
+
+function showIdeasStatus() {
+  const el = document.getElementById("ideasStatus");
+  if (el) el.textContent = ideasFeedback;
+}
+
+async function addIdeaTab() {
+  const title = document.getElementById("ideaTabTitle").value.trim();
+  const body = document.getElementById("ideaTabBody").value.trim();
+  if (!title) { ideasFeedback = "Escribe un título"; showIdeasStatus(); return; }
+  try {
+    const data = await api("/api/ideas", { method: "POST", body: JSON.stringify({ title, body }) });
+    ideasFeedback = `OK: idea guardada (${data.file})`;
+    document.getElementById("ideaTabTitle").value = "";
+    document.getElementById("ideaTabBody").value = "";
+  } catch (err) {
+    ideasFeedback = "Error: " + err.message;
+  }
+  refresh();
+}
+
+/** Genera drafts de una idea (itemId) o de todas las ideas (itemId = null). */
+async function runIdeasGenerate(itemId) {
+  const btn = document.getElementById("ideasGenBtn");
+  if (btn) btn.disabled = true;
+  ideasFeedback = "Iniciando generación…";
+  showIdeasStatus();
+  try {
+    const data = await api("/api/generate", { method: "POST", body: itemId ? JSON.stringify({ itemId }) : "{}" });
+    if (data.generated !== undefined) {
+      // Modo demo: resultado inmediato.
+      ideasFeedback = data.generated > 0 ? `OK: ${data.generated} draft(s) generados.` : "Sin drafts nuevos (todo cubierto o sin canales).";
+      showIdeasStatus();
+      refresh();
+      return;
+    }
+    // HTTP 202: generación en segundo plano → seguir el progreso en vivo.
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 1200));
+      let p;
+      try {
+        p = await api("/api/generation", { method: "GET" });
+      } catch (err) {
+        ideasFeedback = "Error: " + err.message;
+        break;
+      }
+      if (p.running) {
+        ideasFeedback = p.total > 0 && p.currentItem
+          ? `Generando ${p.index}/${p.total}: «${p.currentItem}» · ${p.generated} draft(s) listos…`
+          : "Generando…";
+        showIdeasStatus();
+        continue;
+      }
+      ideasFeedback = p.error
+        ? "Error: " + p.error
+        : p.generated > 0
+          ? `OK: ${p.generated} draft(s) generados.`
+          : "Sin drafts nuevos (todo cubierto o sin canales).";
+      break;
+    }
+  } catch (err) {
+    ideasFeedback = "Error: " + err.message;
+  }
+  showIdeasStatus();
+  refresh();
+}
+
+function generateAllIdeas() { runIdeasGenerate(null); }
+function genIdeaItem(id) { runIdeasGenerate(id); }
+
+async function deleteIdeaItem(id) {
+  const item = state.items.find((i) => i.id === id);
+  if (!item) return;
+  const nPosts = state.posts.filter((p) => p.contentItemId === id).length;
+  if (!confirm(`¿Eliminar la idea «${item.title}»? Se borrará la idea, sus ${nPosts} draft(s) y el archivo .md.`)) return;
+  try {
+    await api(`/api/items/${id}`, { method: "DELETE" });
+    ideasFeedback = `OK: idea eliminada${nPosts ? ` (${nPosts} draft(s))` : ""}.`;
+  } catch (err) {
+    ideasFeedback = "Error: " + err.message;
+  }
+  refresh();
+}
+
+/* ── Pestaña Calendario: vista mensual de posts programados/publicados ── */
+
+let calMonth = new Date(); // mes mostrado (1 = 1 del mes)
+let calData = null; // { year, month, today, events, slots }
+let calLoading = false;
+let calError = "";
+
+const CAL_MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const CAL_DOWS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+function renderCalendar() {
+  const root = document.getElementById("content");
+  if (!calData && !calLoading) {
+    calFetch(); // primera visita: cargar el mes
+    return;
+  }
+  if (calLoading && !calData) {
+    root.innerHTML = skeletonHtml();
+    return;
+  }
+  const y = calMonth.getFullYear();
+  const m = calMonth.getMonth();
+  const first = new Date(y, m, 1);
+  const lead = (first.getDay() + 6) % 7; // semana empieza en lunes
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const today = calData ? new Date(calData.today) : new Date();
+  const eventsByDay = {};
+  for (const ev of (calData && calData.events) || []) {
+    const d = new Date(ev.date);
+    const day = d.getDate();
+    (eventsByDay[day] = eventsByDay[day] || []).push({
+      ...ev,
+      time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
+    });
+  }
+
+  const cells = [];
+  for (let i = 0; i < lead; i++) {
+    const d = new Date(y, m, 1 - (lead - i));
+    cells.push(`<div class="cal-cell cal-cell--dim"><span class="cal-num">${d.getDate()}</span></div>`);
+  }
+  for (let day = 1; day <= daysInMonth; day++) {
+    const isToday = today.getFullYear() === y && today.getMonth() === m && today.getDate() === day;
+    const evs = (eventsByDay[day] || []).map((ev) => {
+      const meta = PLATFORM_META[ev.channel] || { mark: "?", color: "var(--text-3)", name: ev.channel };
+      const tip = `${ev.status} · ${meta.name || ev.channel} · ${ev.date} · ${ev.text}`;
+      const text = ev.text.length > 26 ? ev.text.slice(0, 26) + "…" : ev.text;
+      return `<div class="cal-ev ${ev.status}" title="${esc(tip)}"><span class="cal-time">${ev.time}</span><span class="ch-mark" style="background:${meta.color};color:#fff">${meta.mark}</span><span class="cal-txt">${esc(text)}</span></div>`;
+    }).join("");
+    cells.push(`<div class="cal-cell ${isToday ? "cal-cell--today" : ""}"><span class="cal-num">${day}</span>${evs}</div>`);
+  }
+  const remaining = (7 - ((lead + daysInMonth) % 7)) % 7;
+  for (let i = 1; i <= remaining; i++) {
+    const d = new Date(y, m + 1, i);
+    cells.push(`<div class="cal-cell cal-cell--dim"><span class="cal-num">${d.getDate()}</span></div>`);
+  }
+
+  const slotChannels = calData ? Object.entries(calData.slots || {}) : [];
+  const slotsHtml = slotChannels.length
+    ? `<h3 class="sec-head">${ic("clock")} Próximos huecos recomendados</h3>
+       <div class="cal-slots">${slotChannels.map(([ch, list]) => {
+         const meta = PLATFORM_META[ch] || { mark: "?", color: "var(--text-3)", name: ch };
+         return `<div class="cal-slot"><h4><span class="ch-mark" style="background:${meta.color};color:#fff">${meta.mark}</span> ${esc(meta.name || ch)}</h4><ol>${list.map((iso) => {
+           const d = new Date(iso);
+           return `<li>${fmtCal(d)}</li>`;
+         }).join("")}</ol></div>`;
+       }).join("")}</div>`
+    : "";
+
+  root.innerHTML = `
+    <div class="cal-head">
+      <div class="cal-nav">
+        <button class="btn" onclick="calNav(-1)" title="Mes anterior">${ic("chevL")}</button>
+        <span class="cal-month">${ic("calendar")}${CAL_MONTHS[m]} ${y}</span>
+        <button class="btn" onclick="calNav(1)" title="Mes siguiente">${ic("chevR")}</button>
+      </div>
+      <div class="cal-nav">
+        <button class="btn" onclick="calToday()">${ic("clock")} Hoy</button>
+        <button class="btn" onclick="calFetch()">${ic("refresh")} Recargar</button>
+      </div>
+    </div>
+    ${calError ? `<div class="err" style="margin-bottom:12px">${ic("warn", "ic-sm")} ${esc(calError)}</div>` : ""}
+    <div class="cal-grid">${CAL_DOWS.map((d) => `<div class="cal-dow">${d}</div>`).join("")}${cells.join("")}</div>
+    ${slotsHtml}
+    <p class="meta" style="margin-top:14px">Vista mensual de posts programados, publicados y fallidos con fecha. Misma fuente que <code>npm run calendar</code>: los huecos recomendados usan el modelo aprendido del engagement si existe.</p>
+  `;
+}
+
+function fmtCal(d) {
+  const date = d.toLocaleDateString("es-ES", { weekday: "short", day: "2-digit", month: "short" });
+  const time = d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+  return `${date} · ${time}`;
+}
+
+function calNav(dir) {
+  calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + dir, 1);
+  calData = null;
+  calFetch();
+}
+
+function calToday() {
+  calMonth = new Date();
+  calData = null;
+  calFetch();
+}
+
+async function calFetch() {
+  calLoading = true;
+  calError = "";
+  renderCalendar();
+  try {
+    const y = calMonth.getFullYear();
+    const m = String(calMonth.getMonth() + 1).padStart(2, "0");
+    calData = await api(`/api/calendar?month=${y}-${m}`, { method: "GET" });
+  } catch (err) {
+    calError = err.message;
+  }
+  calLoading = false;
+  renderCalendar();
 }
 
 /* ── Pestaña de generación: subir medios, ideas y generar con IA ── */
@@ -1615,13 +1983,146 @@ async function importUrl() {
 }
 
 async function schedule(id) {
-  await api(`/api/posts/${id}/schedule`, { method: "POST", body: "{}" });
+  const data = await api(`/api/posts/${id}/schedule`, { method: "POST", body: "{}" });
+  if (data.post && data.post.scheduledFor) {
+    publishFeedback = { kind: "ok", text: `Programado automáticamente para ${fmt(new Date(data.post.scheduledFor))}.` };
+  }
+  closeSchedule();
   refresh();
+}
+
+/** Valor por defecto del selector: la próxima hora en punto (+1 h). */
+function defaultScheduleValue() {
+  const d = new Date(Date.now() + 3600000);
+  d.setMinutes(0, 0, 0);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Abre el selector de fecha/hora para programar un post concreto. */
+function openSchedule(id) {
+  const post = state.posts.find((p) => p.id === id);
+  if (!post) return;
+  const meta = PLATFORM_META[post.channel] || { name: post.channel };
+  let overlay = document.getElementById("scheduleOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "scheduleOverlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div id="scheduleCard" role="dialog" aria-modal="true" aria-labelledby="scheduleTitle">
+      <h3 id="scheduleTitle">${ic("clock")} Programar en ${esc(meta.name || post.channel)}</h3>
+      <p class="sub">Elige una fecha y hora exacta, o usa el hueco óptimo automático.</p>
+      <input type="datetime-local" id="scheduleInput" value="${defaultScheduleValue()}" aria-label="Fecha y hora de publicación">
+      <div class="actions" style="margin-top:14px">
+        <button class="btn btn-primary" onclick="scheduleAt('${id}')">${ic("check")} Programar en esta fecha</button>
+        <button class="btn" onclick="schedule('${id}')">${ic("gauge")} Hueco automático</button>
+        <button class="btn btn-ghost" onclick="closeSchedule()">${ic("x")} Cancelar</button>
+      </div>
+    </div>`;
+  overlay.style.display = "grid";
+  const input = document.getElementById("scheduleInput");
+  if (input) input.focus();
+}
+
+async function scheduleAt(id) {
+  const input = document.getElementById("scheduleInput");
+  const value = input ? input.value.trim() : "";
+  if (!value) { scheduleFeedback("Elige una fecha y hora."); return; }
+  const iso = new Date(value).toISOString();
+  try {
+    const data = await api(`/api/posts/${id}/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduledFor: iso }),
+    });
+    if (data.post && data.post.scheduledFor) {
+      publishFeedback = { kind: "ok", text: `Programado para ${fmt(new Date(data.post.scheduledFor))}.` };
+    }
+    closeSchedule();
+  } catch (err) {
+    scheduleFeedback("Error: " + err.message);
+    return;
+  }
+  refresh();
+}
+
+function scheduleFeedback(msg) {
+  const card = document.getElementById("scheduleCard");
+  if (!card) return;
+  let el = card.querySelector(".err");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "err";
+    el.style.marginTop = "10px";
+    card.appendChild(el);
+  }
+  el.textContent = msg;
+}
+
+function closeSchedule() {
+  const o = document.getElementById("scheduleOverlay");
+  if (o) o.style.display = "none";
 }
 async function publish(id) {
-  await api(`/api/posts/${id}/publish`, { method: "POST", body: "{}" });
+  const post = state.posts.find((p) => p.id === id);
+  if (!post) return;
+  const meta = PLATFORM_META[post.channel] || { name: post.channel };
+  const channelName = meta.name || post.channel;
+  const live = !state.dryRun;
+  const snippet = post.text.replace(/\s+/g, " ").trim().slice(0, 70);
+  const msg = live
+    ? `¿Publicar ahora en ${channelName}?\n\nSe publicará DE VERDAD en ${channelName} (no se puede deshacer).\n\n«${snippet}${post.text.length > 70 ? "…" : ""}»`
+    : `¿Publicar ahora en ${channelName}? (Modo simulación: se marcará como publicado sin tocar APIs reales.)`;
+  if (!confirm(msg)) return;
+  try {
+    const data = await api(`/api/posts/${id}/publish`, { method: "POST", body: "{}" });
+    const r = data.result;
+    if (r === "published") {
+      const url = data.post && data.post.postUrl;
+      publishFeedback = {
+        kind: "ok",
+        text: `Publicado en ${channelName}${state.dryRun ? " (simulación)" : ""}${url ? ` · ${url}` : ""}`,
+      };
+    } else if (r === "failed") {
+      publishFeedback = {
+        kind: "err",
+        text: `Fallo al publicar en ${channelName}: ${(data.post && data.post.error) || "error desconocido"}`,
+      };
+    } else {
+      publishFeedback = {
+        kind: "warn",
+        text: `No se publicó en ${channelName}: ${(data.post && data.post.error) || "omitido"}`,
+      };
+    }
+  } catch (err) {
+    publishFeedback = { kind: "err", text: `Error: ${err.message}` };
+  }
   refresh();
 }
+
+/** Banner con el último resultado de "Publicar ahora" (ok / err / warn). */
+function publishBannerHtml() {
+  if (!publishFeedback) return "";
+  const icon = publishFeedback.kind === "ok" ? "checkCircle" : publishFeedback.kind === "err" ? "xCircle" : "warn";
+  return `<div class="banner ${publishFeedback.kind}" role="status">${ic(icon, "ic-sm")}<span>${esc(publishFeedback.text)}</span></div>`;
+}
+async function unpublish(id) {
+  const post = state.posts.find((p) => p.id === id);
+  if (!post) return;
+  const meta = PLATFORM_META[post.channel] || { name: post.channel };
+  if (!confirm(`¿Deshacer la publicación en ${meta.name || post.channel}?\n\nEl post volverá a Pendientes como borrador. No se borra de la plataforma.`)) return;
+  try {
+    const data = await api(`/api/posts/${id}/unpublish`, { method: "POST", body: "{}" });
+    const text = ((data.post && data.post.text) || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    publishFeedback = { kind: "ok", text: `Publicación deshecha: «${text}» volvió a Pendientes como borrador.` };
+  } catch (err) {
+    publishFeedback = { kind: "err", text: `Error: ${err.message}` };
+  }
+  refresh();
+}
+
 async function discard(id) {
   if (!confirm("¿Descartar este draft?")) return;
   await api(`/api/posts/${id}/discard`, { method: "POST", body: "{}" });
@@ -1708,6 +2209,7 @@ function renderConfig() {
       ${connectorsFormHtml()}
       ${channelLlmFormHtml()}
       ${channelsFormHtml()}
+      ${notificationsFormHtml()}
     </div>`;
 }
 
@@ -1903,6 +2405,44 @@ function toggleChannel(id) {
   renderConfig();
 }
 
+/** Tarjeta de notificaciones: avisos cuando el agente publica o falla. */
+function notificationsFormHtml() {
+  const n = cfgNotify || { webhookUrl: "", telegramToken: "", telegramChatId: "", discordUrl: "", onPublish: true, onFailure: true };
+  const active = [n.webhookUrl, n.discordUrl, n.telegramToken && n.telegramChatId].filter(Boolean).length;
+  return `
+    <div class="cfg-card cfg-card--wide" style="--i:7">
+      <h3>${ic("bell")} Notificaciones</h3>
+      <p class="meta">Avisa cuando el agente publica de verdad o cuando un post falla. Destinos activos: ${active === 0 ? "ninguno" : active}.</p>
+      <div class="cfg-options" style="margin-top:12px">
+        <div class="cfg-option ${n.onPublish ? "sel" : ""}" onclick="toggleNotify('onPublish')" title="Clic para alternar">
+          <div class="t">${ic("checkCircle")} Avisar al publicar ${n.onPublish ? `<span class="opt-check">${ic("check", "ic-sm")}</span>` : ""}</div>
+          <div class="d">Notifica cada publicación real (nunca en modo simulación).</div>
+        </div>
+        <div class="cfg-option ${n.onFailure ? "sel" : ""}" onclick="toggleNotify('onFailure')" title="Clic para alternar">
+          <div class="t">${ic("xCircle")} Avisar al fallar ${n.onFailure ? `<span class="opt-check">${ic("check", "ic-sm")}</span>` : ""}</div>
+          <div class="d">Notifica cuando un post falla al publicarse (límite, credenciales, API).</div>
+        </div>
+      </div>
+      <div class="cfg-cll-fields" style="margin-top:14px">
+        <div class="cfg-field"><label>Webhook genérico (Slack, Make, n8n…)</label>
+          <input id="cfgnotify_webhookUrl" type="url" value="${esc(n.webhookUrl || "")}" placeholder="https://hooks.slack.com/services/…"></div>
+        <div class="cfg-field"><label>Webhook de Discord</label>
+          <input id="cfgnotify_discordUrl" type="url" value="${esc(n.discordUrl || "")}" placeholder="https://discord.com/api/webhooks/…"></div>
+        <div class="cfg-field"><label>Telegram · bot token</label>
+          <input id="cfgnotify_telegramToken" type="password" value="${esc(n.telegramToken || "")}" placeholder="123456:ABC-…" autocomplete="off"></div>
+        <div class="cfg-field"><label>Telegram · chat id (número o @usuario)</label>
+          <input id="cfgnotify_telegramChatId" type="text" value="${esc(n.telegramChatId || "")}" placeholder="-1001234567890"></div>
+      </div>
+      <p class="meta" style="margin-top:12px">Un destino está activo cuando tiene su URL (o token + chat) rellenos. Recuerda pulsar Guardar para aplicarlo.</p>
+    </div>`;
+}
+
+function toggleNotify(key) {
+  if (!cfgNotify) cfgNotify = { webhookUrl: "", telegramToken: "", telegramChatId: "", discordUrl: "", onPublish: true, onFailure: true };
+  cfgNotify[key] = !cfgNotify[key];
+  renderConfig();
+}
+
 function cfgSummaryItem(k, v, mono) {
   return `<div><div class="k">${esc(k)}</div><div class="v ${mono ? "mono" : ""}">${esc(v)}</div></div>`;
 }
@@ -1966,6 +2506,7 @@ async function saveCfg(test) {
     });
     body.channelLlm = channelLlm;
   }
+  if (cfgNotify) body.notifications = { ...cfgNotify };
   const box = document.getElementById("cfgResult");
   if (box) box.innerHTML = `<span class="meta">Guardando…</span>`;
   try {
@@ -2037,6 +2578,12 @@ document.addEventListener("input", (e) => {
   if (m) {
     const c = (cfgConnectors || [])[Number(m[1])];
     if (c) c[m[2]] = e.target.value;
+  }
+  // Campos de notificaciones: cfgnotify_<campo>.
+  const nm = id.match(/^cfgnotify_(\w+)$/);
+  if (nm) {
+    if (!cfgNotify) cfgNotify = { webhookUrl: "", telegramToken: "", telegramChatId: "", discordUrl: "", onPublish: true, onFailure: true };
+    cfgNotify[nm[1]] = e.target.value;
   }
 });
 

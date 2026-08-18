@@ -1,5 +1,6 @@
 import { getAdapter } from "./channels/index.js";
 import type { AgentConfig } from "./config.js";
+import { sendNotifications } from "./notify.js";
 import { loadLearnedSchedule, nextSlot, type LearnedSchedule } from "./scheduler.js";
 import type { Store } from "./storage.js";
 import type { ChannelId, Post } from "./types.js";
@@ -39,10 +40,9 @@ export async function publishOnePost(
 
   const limit = CHANNEL_LIMITS[post.channel];
   if (limit && post.text.length > limit) {
-    store.updatePost(post.id, {
-      status: "failed",
-      error: `Texto de ${post.text.length} caracteres excede el límite de ${limit} del canal.`,
-    });
+    const error = `Texto de ${post.text.length} caracteres excede el límite de ${limit} del canal.`;
+    store.updatePost(post.id, { status: "failed", error });
+    void sendNotifications(config, { kind: "failure", channel: post.channel, title: post.text, error });
     return "failed";
   }
 
@@ -74,9 +74,21 @@ export async function publishOnePost(
       postUrl: result.url,
       error: undefined,
     });
+    void sendNotifications(config, {
+      kind: "publish",
+      channel: post.channel,
+      title: post.text,
+      ...(result.url ? { postUrl: result.url } : {}),
+    });
     return "published";
   }
   store.updatePost(post.id, { status: "failed", error: result.error });
+  void sendNotifications(config, {
+    kind: "failure",
+    channel: post.channel,
+    title: post.text,
+    error: result.error ?? "Error desconocido al publicar",
+  });
   return "failed";
 }
 

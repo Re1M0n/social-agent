@@ -1,5 +1,6 @@
 import type { AgentConfig } from "../config.js";
 import { CHANNELS, type ChannelConfig, type ChannelId } from "../types.js";
+import { defaultNotifyConfig } from "../uiconfig.js";
 
 /**
  * Config de test 100% hermética: NO lee el .env local ni variables de entorno.
@@ -36,6 +37,7 @@ export function testConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
       channels: {},
     },
     channels,
+    notifications: defaultNotifyConfig(),
     ...overrides,
   };
   return config;

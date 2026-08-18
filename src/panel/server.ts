@@ -9,10 +9,11 @@ import { CONTENT_EXTENSIONS, loadConfig, type AgentConfig, type LlmSpeed } from 
 import { generateForAll, generateForItem, type GenerationProgress } from "../generator.js";
 import { ingest } from "../ingest.js";
 import { applyLocalLlm, chat, chatStream, type LlmOptions } from "../llm.js";
-import { CHANNEL_LIMITS, publishSingle, scheduleDrafts, scheduleSingle } from "../publisher.js";
+import { CHANNEL_LIMITS, loadLearned, publishSingle, scheduleDrafts, scheduleSingle } from "../publisher.js";
+import { nextSlot } from "../scheduler.js";
 import { Store } from "../storage.js";
-import type { ChannelId } from "../types.js";
-import { applyUiConfig, loadChannelLlm, loadConnectors, loadUiConfig, saveChannelLlm, saveConnectors, saveUiConfig, uiConfigFile, UI_CONFIG_KEYS, type ConnectorConfig, type UiConfigVars } from "../uiconfig.js";
+import { CHANNELS, type ChannelId } from "../types.js";
+import { applyUiConfig, loadChannelLlm, loadConnectors, loadNotifications, loadUiConfig, saveChannelLlm, saveConnectors, saveNotifications, saveUiConfig, uiConfigFile, UI_CONFIG_KEYS, type ConnectorConfig, type UiConfigVars } from "../uiconfig.js";
 
 /** Límite de subida de media (300 MB: sobra para fotos y la mayoría de vídeos). */
 const MAX_UPLOAD_BYTES = 300 * 1024 * 1024;
@@ -376,6 +377,18 @@ async function handleApi(
     if (json.channelLlm && typeof json.channelLlm === "object") {
       saveChannelLlm(config.root, json.channelLlm as Partial<Record<ChannelId, string>>);
     }
+    // Notificaciones (webhook/Telegram/Discord): se guardan con el resto.
+    if (json.notifications && typeof json.notifications === "object") {
+      const n = json.notifications as Record<string, unknown>;
+      saveNotifications(config.root, {
+        webhookUrl: typeof n.webhookUrl === "string" ? n.webhookUrl : "",
+        telegramToken: typeof n.telegramToken === "string" ? n.telegramToken : "",
+        telegramChatId: typeof n.telegramChatId === "string" ? n.telegramChatId : "",
+        discordUrl: typeof n.discordUrl === "string" ? n.discordUrl : "",
+        onPublish: n.onPublish !== false,
+        onFailure: n.onFailure !== false,
+      });
+    }
     applyUiConfig(config.root, true);
     const fresh = loadConfig(config.root);
     await applyLocalLlm(fresh, () => {}); // silencioso: el panel ya muestra el resultado
@@ -501,6 +514,47 @@ async function handleApi(
     }
   }
 
+  // Calendario editorial: eventos del mes (programados/publicados/fallidos con
+  // fecha) + próximos huecos recomendados por canal (misma lógica que el CLI
+  // `npm run calendar`: modelo aprendido si existe).
+  if (method === "GET" && pathname === "/api/calendar") {
+    const q = new URL(req.url ?? "/", "http://localhost");
+    const raw = q.searchParams.get("month") ?? "";
+    const m = /^(\d{4})-(\d{2})$/.exec(raw);
+    const now = new Date();
+    const year = m ? Number(m[1]) : now.getFullYear();
+    const month = m ? Number(m[2]) - 1 : now.getMonth();
+    const start = new Date(year, month, 1).getTime();
+    const end = new Date(year, month + 1, 1).getTime();
+    const events = store.posts
+      .map((p) => {
+        // Un post publicado se muestra en su fecha de publicación; el resto
+        // (programados/fallidos) en su horario programado.
+        const date = p.status === "published" ? p.publishedAt : p.scheduledFor;
+        if (!date) return null;
+        const t = Date.parse(date);
+        if (Number.isNaN(t) || t < start || t >= end) return null;
+        return { id: p.id, channel: p.channel, status: p.status, date, text: p.text, postUrl: p.postUrl };
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    // Próximos huecos recomendados por canal habilitado (como `npm run calendar`).
+    const learned = loadLearned(config);
+    const slots: Record<string, string[]> = {};
+    for (const id of CHANNELS) {
+      if (!config.channels[id].enabled) continue;
+      const list: string[] = [];
+      let after = new Date();
+      for (let i = 0; i < 3; i++) {
+        const slot = nextSlot(id, after, config.minIntervalMs, 3, learned);
+        list.push(slot.toISOString());
+        after = new Date(slot.getTime() + config.minIntervalMs);
+      }
+      slots[id] = list;
+    }
+    return sendJson(res, 200, { year, month, today: now.toISOString(), events, slots });
+  }
+
   if (method === "GET" && pathname === "/api/state") {
     const items = store.contentItems.map((i) => ({ ...i, mediaName: i.filePath?.split(/[\\/]/).pop() }));
     sendJson(res, 200, {
@@ -541,7 +595,22 @@ async function handleApi(
   }
 
   if (method === "POST" && action === "schedule") {
-    const post = scheduleSingle(config, store, postId);
+    // Con `scheduledFor` en el cuerpo se fija un horario exacto; sin él, el
+    // panel usa el siguiente hueco óptimo automático (misma lógica que el CLI).
+    const raw = typeof json.scheduledFor === "string" ? json.scheduledFor.trim() : "";
+    let post;
+    if (raw) {
+      const t = Date.parse(raw);
+      if (Number.isNaN(t)) return sendJson(res, 400, { error: "Fecha inválida" });
+      if (t <= Date.now()) return sendJson(res, 400, { error: "La fecha debe ser futura" });
+      post = store.updatePost(postId, {
+        status: "scheduled",
+        scheduledFor: new Date(t).toISOString(),
+        error: undefined,
+      });
+    } else {
+      post = scheduleSingle(config, store, postId);
+    }
     if (!post) return sendJson(res, 404, { error: "Post no encontrado" });
     return sendJson(res, 200, { ok: true, post });
   }
@@ -552,6 +621,19 @@ async function handleApi(
     const post = store.getPostsByStatus("published").find((p) => p.id === postId)
       ?? store.posts.find((p) => p.id === postId);
     return sendJson(res, 200, { ok: true, result, post });
+  }
+
+  // Deshacer una publicación: vuelve el post a borrador (Pendientes). No borra
+  // la publicación en la plataforma (las APIs no lo permiten en general).
+  if (method === "POST" && action === "unpublish") {
+    const post = store.updatePost(postId, {
+      status: "draft",
+      publishedAt: undefined,
+      postUrl: undefined,
+      error: undefined,
+    });
+    if (!post) return sendJson(res, 404, { error: "Post no encontrado" });
+    return sendJson(res, 200, { ok: true, post });
   }
 
   if (method === "POST" && action === "discard") {
@@ -607,6 +689,7 @@ function configView(config: AgentConfig, saved: UiConfigVars): Record<string, un
       path: join(config.root, ".env"),
       exists: existsSync(join(config.root, ".env")),
     },
+    notifications: loadNotifications(config.root),
     connectors,
     channels: (Object.keys(config.channels) as ChannelId[]).map((id) => {
       const c = config.channels[id];

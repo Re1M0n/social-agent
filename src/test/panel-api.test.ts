@@ -646,6 +646,143 @@ describe("Panel web: API de revisión y aprobación", () => {
     assert.equal(again.channels.find((c: { id: string }) => c.id === "mastodon").enabled, false);
   });
 
+  it("POST /api/config guarda las notificaciones y GET las devuelve", async () => {
+    const res = await fetch(`${base}/api/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        LLM_API_KEY: "", LLM_BASE_URL: "", LLM_MODEL: "",
+        LLM_LOCAL: "", LLM_SPEED: "", OLLAMA_BASE_URL: "", OLLAMA_MODEL: "",
+        LLM_FREE_FALLBACK: "", LLM_ENABLED: "",
+        notifications: {
+          webhookUrl: "https://hooks.slack.com/services/T00",
+          telegramToken: "123:ABC",
+          telegramChatId: "-100123",
+          discordUrl: "https://discord.com/api/webhooks/111",
+          onPublish: false,
+          onFailure: true,
+        },
+      }),
+    });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(data.config.notifications.webhookUrl, "https://hooks.slack.com/services/T00");
+    assert.equal(data.config.notifications.onPublish, false);
+    assert.equal(data.config.notifications.onFailure, true);
+    const saved = JSON.parse(readFileSync(join(dir, "data", "ui-config.json"), "utf8"));
+    assert.equal(saved.notifications.discordUrl, "https://discord.com/api/webhooks/111");
+    assert.equal(saved.notifications.telegramChatId, "-100123");
+    // Persistido y visible en el siguiente GET.
+    const again = await (await fetch(`${base}/api/config`)).json();
+    assert.equal(again.notifications.telegramToken, "123:ABC");
+    assert.equal(again.notifications.onPublish, false);
+  });
+
+  it("GET /api/calendar devuelve los eventos del mes y los huecos recomendados", async () => {
+    const now = new Date();
+    // Marcar un post como programado dentro del mes actual (misma fuente que el CLI).
+    const store = new Store(dataFile);
+    const mid = new Date(now.getFullYear(), now.getMonth(), 15, 10, 30, 0);
+    store.updatePost("post-a-mastodon", { status: "scheduled", scheduledFor: mid.toISOString() });
+    const res = await fetch(`${base}/api/calendar`);
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.year, now.getFullYear());
+    assert.equal(data.month, now.getMonth());
+    const ev = data.events.find((e: { id: string }) => e.id === "post-a-mastodon");
+    assert.ok(ev, "evento del post programado presente en el mes");
+    assert.equal(ev.status, "scheduled");
+    assert.equal(ev.channel, "mastodon");
+    assert.equal(ev.date, mid.toISOString(), "fecha programada del post");
+    // Huecos recomendados por canal habilitado (como `npm run calendar`).
+    const st = await (await fetch(`${base}/api/state`)).json();
+    const enabledIds = st.channels.filter((c: { enabled: boolean }) => c.enabled).map((c: { id: string }) => c.id);
+    assert.ok(enabledIds.length > 0, "al menos un canal habilitado");
+    for (const id of enabledIds) {
+      assert.ok(Array.isArray(data.slots[id]) && data.slots[id].length === 3, `3 huecos recomendados para ${id}`);
+    }
+    // Otro mes → sin eventos (pero sí huecos recomendados).
+    const prev = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+    const prevYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+    const empty = await (await fetch(`${base}/api/calendar?month=${prevYear}-${String(prev + 1).padStart(2, "0")}`)).json();
+    assert.equal(empty.events.length, 0, "mes distinto sin eventos");
+  });
+
+  it("POST /api/posts/:id/unpublish vuelve el post publicado a borrador", async () => {
+    // Tests previos dejaron Mastodon deshabilitado; lo re-habilitamos.
+    await fetch(`${base}/api/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        LLM_API_KEY: "", LLM_BASE_URL: "", LLM_MODEL: "", LLM_LOCAL: "", LLM_SPEED: "",
+        OLLAMA_BASE_URL: "", OLLAMA_MODEL: "", LLM_FREE_FALLBACK: "", LLM_ENABLED: "",
+        // El chat "cambiar modo de publicación" deja DRY_RUN=0; restauramos simulación.
+        DRY_RUN: "1", AUTO_PUBLISH: "0",
+        CHANNEL_MASTODON_ENABLED: "1",
+      }),
+    });
+    // Publicar primero (dry-run) para tener un post publicado con fecha/URL.
+    const pub = await fetch(`${base}/api/posts/post-a-mastodon/publish`, { method: "POST", body: "{}" });
+    const pubData = await pub.json();
+    assert.equal(pubData.result, "published");
+    assert.equal(pubData.post.status, "published");
+    assert.ok(pubData.post.publishedAt, "tiene fecha de publicación");
+    // Deshacer: vuelve a borrador y limpia fecha/URL.
+    const res = await fetch(`${base}/api/posts/post-a-mastodon/unpublish`, { method: "POST", body: "{}" });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.post.status, "draft");
+    assert.equal(data.post.publishedAt, undefined);
+    assert.equal(data.post.postUrl, undefined);
+    // Persistido: el siguiente GET no lo ve publicado.
+    const state = await (await fetch(`${base}/api/state`)).json();
+    const p = state.posts.find((x: { id: string }) => x.id === "post-a-mastodon");
+    assert.equal(p.status, "draft");
+    assert.equal(p.publishedAt, undefined);
+  });
+
+  it("POST /api/posts/:id/unpublish devuelve 404 para posts inexistentes", async () => {
+    const res = await fetch(`${base}/api/posts/no-existe/unpublish`, { method: "POST", body: "{}" });
+    assert.equal(res.status, 404);
+  });
+
+  it("POST /api/posts/:id/schedule con scheduledFor fija el horario exacto", async () => {
+    const when = new Date(Date.now() + 48 * 3600 * 1000);
+    when.setMinutes(0, 0, 0);
+    const res = await fetch(`${base}/api/posts/post-a-mastodon/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduledFor: when.toISOString() }),
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.post.status, "scheduled");
+    assert.equal(data.post.scheduledFor, when.toISOString());
+  });
+
+  it("POST /api/posts/:id/schedule rechaza fechas pasadas", async () => {
+    const past = new Date(Date.now() - 3600 * 1000).toISOString();
+    const res = await fetch(`${base}/api/posts/post-a-mastodon/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduledFor: past }),
+    });
+    assert.equal(res.status, 400);
+    const data = await res.json();
+    assert.match(String(data.error), /futura/);
+  });
+
+  it("POST /api/posts/:id/schedule sin scheduledFor usa el hueco automático", async () => {
+    const res = await fetch(`${base}/api/posts/post-a-mastodon/schedule`, { method: "POST", body: "{}" });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.post.status, "scheduled");
+    assert.ok(data.post.scheduledFor && Date.parse(data.post.scheduledFor) > Date.now() - 1000, "fecha futura");
+  });
+
   it("POST /api/config cambia DRY_RUN y AUTO_PUBLISH en caliente", async () => {
     const res = await fetch(`${base}/api/config`, {
       method: "POST",
